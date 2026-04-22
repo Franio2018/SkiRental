@@ -1,0 +1,71 @@
+@* ════════════════════════════════════════════════════════════════════════════
+   Pages/Home.razor
+════════════════════════════════════════════════════════════════════════════ *@
+@page "/"
+@using SkiRental.App.Services
+
+@inject WeatherService Weather
+
+<PageTitle>SkiRental – Strona główna</PageTitle>
+
+<div class="home-page">
+    <header class="app-hero">
+        <div class="hero-content">
+            <div class="hero-logo">🎿</div>
+            <h1>SkiRental</h1>
+            <p class="hero-subtitle">Wypożyczalnia Nart Biegowych</p>
+        </div>
+    </header>
+
+    @* Warunki narciarskie *@
+    @if (_weather is not null)
+    {
+        <div class="weather-widget @(_weather.IsGoodForSkiing ? "good" : "warning")">
+            <div class="weather-icon">
+                @if (!string.IsNullOrEmpty(_weather.Icon))
+                {
+                    <img src="@_weather.Icon" alt="Pogoda" />
+                }
+            </div>
+            <div class="weather-info">
+                <strong>@_weather.Location</strong>
+                <span>@_weather.TemperatureCelsius.ToString("F1")°C · @_weather.Description</span>
+                <span class="ski-condition">@_weather.SkiConditionLabel</span>
+            </div>
+        </div>
+    }
+
+    @* Karty akcji *@
+    <div class="action-grid">
+        <a href="/booking" class="action-card primary">
+            <span class="action-icon">🎿</span>
+            <h3>Nowe Wypożyczenie</h3>
+            <p>Dobierz sprzęt z pomocą Inteligentnego Asystenta</p>
+        </a>
+        <a href="/my-rentals" class="action-card">
+            <span class="action-icon">📋</span>
+            <h3>Moje Wypożyczenia</h3>
+            <p>Historia i aktywne rezerwacje</p>
+        </a>
+        <a href="/employee" class="action-card employee">
+            <span class="action-icon">📷</span>
+            <h3>Panel Pracownika</h3>
+            <p>Skanuj QR / NFC, zarządzaj zwrotami</p>
+        </a>
+        <a href="/analytics" class="action-card analytics">
+            <span class="action-icon">📊</span>
+            <h3>Analityka</h3>
+            <p>Wskaźniki użycia floty – Back-office</p>
+        </a>
+    </div>
+</div>
+
+@code {
+    private SkiWeatherReport? _weather;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _weather = await Weather.GetSkiConditionsAsync(); }
+        catch { /* ignoruj – widżet jest opcjonalny */ }
+    }
+}

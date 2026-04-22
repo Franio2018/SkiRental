@@ -1,0 +1,204 @@
+@* SkiRental.UI.Shared/Components/Employee/QrScannerPanel.razor *@
+@* Panel pracownika – skanowanie QR do weryfikacji i zwrotu sprzętu *@
+
+@using SkiRental.Domain.Models
+@using SkiRental.Logic.Services
+@using Microsoft.JSInterop
+
+@inject BookingService BookingService
+@inject IJSRuntime JS
+
+<div class="qr-scanner-panel">
+    <div class="panel-header">
+        <h2>📷 Panel Pracownika – Skaner QR / NFC</h2>
+        <div class="scan-mode-toggle">
+            <button class="mode-btn @(ScanMode == "return" ? "active" : "")"
+                    @onclick='() => ScanMode = "return"'>
+                🔄 Zwrot sprzętu
+            </button>
+            <button class="mode-btn @(ScanMode == "pickup" ? "active" : "")"
+                    @onclick='() => ScanMode = "pickup"'>
+                📦 Wydanie sprzętu
+            </button>
+        </div>
+    </div>
+
+    @* ── Strefa skanera (ZXing jest natywnym widokiem MAUI) ────────────────── *@
+    @* Poniższy <div> to placeholder. W projekcie MAUI zamieniany przez MauiQrBridge.cs *@
+    <div class="scanner-viewport">
+        @if (!_scannerActive)
+        {
+            <button class="btn-start-scan" @onclick="ActivateScannerAsync">
+                <span class="scan-icon">📷</span>
+                Kliknij aby włączyć kamerę
+            </button>
+        }
+        else
+        {
+            @* ZXing BarcodeReaderView jest wstrzykiwany tu przez MAUI BlazorWebView bridge *@
+            <div id="zxing-native-placeholder" data-active="true" class="scanner-live">
+                <div class="scan-crosshair">
+                    <div class="crosshair-corner tl"></div>
+                    <div class="crosshair-corner tr"></div>
+                    <div class="crosshair-corner bl"></div>
+                    <div class="crosshair-corner br"></div>
+                </div>
+                <p class="scan-hint">Skieruj kamerę na kod QR na opasce klienta</p>
+            </div>
+        }
+    </div>
+
+    @* ── Pole ręcznego wprowadzenia kodu ────────────────────────────────────── *@
+    <div class="manual-input-section">
+        <label>lub wpisz kod ręcznie</label>
+        <div class="manual-row">
+            <input type="text" @bind="ManualQrCode" placeholder="SKI-XXXXXX-…" class="manual-input" />
+            <button class="btn-verify" @onclick="ProcessQrCodeAsync" disabled="@_isProcessing">
+                @(_isProcessing ? "Sprawdzam…" : "Weryfikuj")
+            </button>
+        </div>
+    </div>
+
+    @* ── Wynik weryfikacji ───────────────────────────────────────────────────── *@
+    @if (_rentalInfo is not null)
+    {
+        <div class="rental-info-card @(_rentalError is null ? "success" : "error")">
+            @if (_rentalError is null)
+            {
+                <h3>✅ Wypożyczenie potwierdzone</h3>
+                <div class="rental-details">
+                    <div class="detail-row">
+                        <span>Klient:</span>
+                        <strong>@_rentalInfo.Customer?.FirstName @_rentalInfo.Customer?.LastName</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>Od / Do:</span>
+                        <strong>@_rentalInfo.StartTime.ToString("dd.MM HH:mm") – @_rentalInfo.EndTime.ToString("dd.MM HH:mm")</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>Sprzęt:</span>
+                        <strong>@_rentalInfo.RentalEquipments.Count szt.</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>Płatność:</span>
+                        <strong class="@(_rentalInfo.IsPreauthorized ? "paid" : "unpaid")">
+                            @(_rentalInfo.IsPreauthorized ? "✓ Opłacone" : "⚠ Nieopłacone")
+                        </strong>
+                    </div>
+                </div>
+
+                @* Ocena stanu sprzętu przy zwrocie *@
+                @if (ScanMode == "return")
+                {
+                    <div class="condition-assessment">
+                        <h4>Ocena stanu zwracanego sprzętu</h4>
+                        @foreach (var re in _rentalInfo.RentalEquipments)
+                        {
+                            <div class="condition-row">
+                                <span>Sprzęt #@re.EquipmentId</span>
+                                <div class="condition-stars">
+                                    @for (int star = 1; star <= 5; star++)
+                                    {
+                                        var s = star;
+                                        <button class="star @(EquipmentConditions.GetValueOrDefault(re.EquipmentId, 5) >= s ? "filled" : "")"
+                                                @onclick="() => EquipmentConditions[re.EquipmentId] = s">★</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <button class="btn-confirm-return" @onclick="ConfirmReturnAsync">
+                        ✅ Potwierdź zwrot i zamknij wypożyczenie
+                    </button>
+                }
+            }
+            else
+            {
+                <h3>❌ Błąd</h3>
+                <p>@_rentalError</p>
+            }
+        </div>
+    }
+
+    @if (_returnConfirmed)
+    {
+        <div class="return-success">
+            🎉 Zwrot zarejestrowany! Sprzęt jest teraz dostępny.
+        </div>
+    }
+</div>
+
+@code {
+    // ── Stan ─────────────────────────────────────────────────────────────────
+    private string ScanMode = "return";
+    private bool _scannerActive;
+    private string ManualQrCode = string.Empty;
+    private bool _isProcessing;
+
+    private Rental? _rentalInfo;
+    private string? _rentalError;
+    private bool _returnConfirmed;
+
+    private Dictionary<int, int> EquipmentConditions = new();
+
+    // ── Zdarzenie wywoływane przez natywny bridge MAUI ───────────────────────
+    /// <summary>
+    /// Ta metoda jest wywoływana przez MAUI ZXing bridge gdy skaner wykryje kod.
+    /// W MauiQrBridge.cs rejestrujemy: blazorWebView.RootComponents → JS Interop
+    /// </summary>
+    [JSInvokable("OnQrCodeDetected")]
+    public async Task OnQrCodeDetected(string qrCode)
+    {
+        ManualQrCode = qrCode;
+        await ProcessQrCodeAsync();
+        StateHasChanged();
+    }
+
+    private async Task ActivateScannerAsync()
+    {
+        _scannerActive = true;
+        // Powiadamiamy MAUI native layer przez JS interop
+        await JS.InvokeVoidAsync("skiRentalBridge.startQrScanner",
+            DotNetObjectReference.Create(this));
+    }
+
+    private async Task ProcessQrCodeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ManualQrCode)) return;
+
+        _isProcessing    = true;
+        _rentalError     = null;
+        _rentalInfo      = null;
+        _returnConfirmed = false;
+        StateHasChanged();
+
+        // TODO: wstrzyknąć IRentalRepository zamiast BookingService (lub rozszerzyć serwis)
+        // Na potrzeby schematu - mockujemy fetch:
+        await Task.Delay(500); // symulacja zapytania do DB
+        _rentalError = "Implementacja: wstrzyknij IRentalRepository i wywołaj GetByQrCodeAsync()";
+
+        _isProcessing = false;
+    }
+
+    private async Task ConfirmReturnAsync()
+    {
+        _isProcessing = true;
+        StateHasChanged();
+
+        var result = await BookingService.ProcessReturnByQrCodeAsync(
+            ManualQrCode, EquipmentConditions);
+
+        if (result.IsSuccess)
+        {
+            _returnConfirmed = true;
+            _rentalInfo      = null;
+        }
+        else
+        {
+            _rentalError = result.ErrorMessage;
+        }
+
+        _isProcessing = false;
+    }
+}

@@ -1,0 +1,162 @@
+@* SkiRental.UI.Shared/Components/Analytics/UtilizationDashboard.razor *@
+@* Panel analityczny back-office – wskaźniki użycia floty *@
+
+@using SkiRental.Domain.Models
+@using SkiRental.Logic.Services
+
+@inject AnalyticsService Analytics
+
+<div class="analytics-dashboard">
+    <div class="dashboard-header">
+        <h1>📊 Analityka Floty Sprzętowej</h1>
+        <div class="season-picker">
+            <label>Sezon od:</label>
+            <input type="date" @bind="SeasonStart" class="date-input" />
+            <label>do:</label>
+            <input type="date" @bind="SeasonEnd" class="date-input" />
+            <button class="btn-refresh" @onclick="LoadDataAsync">🔄 Odśwież</button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="loading-overlay">
+            <div class="spinner-large"></div>
+            <p>Obliczanie wskaźników…</p>
+        </div>
+    }
+    else if (_reports is not null)
+    {
+        @* ── KPI Cards ─────────────────────────────────────────────────────── *@
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-icon">⛷️</span>
+                <span class="kpi-label">Sprzęt w analizie</span>
+                <span class="kpi-value">@_reports.Count</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-icon">📈</span>
+                <span class="kpi-label">Średni UtilizationRate</span>
+                <span class="kpi-value">@(_reports.Average(r => r.UtilizationRate * 100).ToString("F1"))%</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-icon">💰</span>
+                <span class="kpi-label">Przychód sezonu</span>
+                <span class="kpi-value">@_reports.Sum(r => r.Revenue).ToString("N0") PLN</span>
+            </div>
+            <div class="kpi-card @(_underutilizedCount > 0 ? "warning" : "")">
+                <span class="kpi-icon">⚠️</span>
+                <span class="kpi-label">Sprzęt &lt; 30% użycia</span>
+                <span class="kpi-value">@_underutilizedCount</span>
+            </div>
+        </div>
+
+        @* ── Tabela utilization ────────────────────────────────────────────── *@
+        <div class="table-section">
+            <h2>Wskaźniki użycia sprzętu</h2>
+            <table class="utilization-table">
+                <thead>
+                    <tr>
+                        <th @onclick='() => SortBy("name")'>Sprzęt ⇅</th>
+                        <th @onclick='() => SortBy("category")'>Kategoria ⇅</th>
+                        <th @onclick='() => SortBy("rate")'>Utilization Rate ⇅</th>
+                        <th @onclick='() => SortBy("hours")'>Czas wynajmu [h] ⇅</th>
+                        <th @onclick='() => SortBy("rentals")'>Wypożyczenia ⇅</th>
+                        <th @onclick='() => SortBy("revenue")'>Przychód [PLN] ⇅</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var report in SortedReports)
+                    {
+                        <tr class="@GetRowClass(report)">
+                            <td>
+                                <strong>@report.EquipmentDescription</strong>
+                                <br /><small class="serial">@report.SerialNumber</small>
+                            </td>
+                            <td>@report.Category</td>
+                            <td>
+                                <div class="utilization-bar-cell">
+                                    <div class="utilization-bar">
+                                        <div class="bar-fill @GetBarClass(report.UtilizationRate)"
+                                             style="width: @Math.Min(report.UtilizationRatePercent, 100).ToString("F0")%">
+                                        </div>
+                                    </div>
+                                    <span class="bar-label">@report.UtilizationRatePercent.ToString("F1")%</span>
+                                </div>
+                            </td>
+                            <td>@report.TotalRentedHours.ToString("F1")</td>
+                            <td>@report.TotalRentals</td>
+                            <td>@report.Revenue.ToString("N0")</td>
+                            <td>
+                                <span class="status-badge @GetStatusBadgeClass(report.UtilizationRate)">
+                                    @GetStatusLabel(report.UtilizationRate)
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    // ── Dane ──────────────────────────────────────────────────────────────────
+    private IReadOnlyList<UtilizationReport>? _reports;
+    private bool _isLoading;
+    private string _sortColumn = "rate";
+    private bool _sortDesc = true;
+
+    // ── Seson ─────────────────────────────────────────────────────────────────
+    private DateTime SeasonStart { get; set; } = new DateTime(DateTime.Now.Year, 12, 1);
+    private DateTime SeasonEnd   { get; set; } = new DateTime(DateTime.Now.Year + 1, 3, 31);
+
+    // ── Computed ──────────────────────────────────────────────────────────────
+    private int _underutilizedCount => _reports?.Count(r => r.UtilizationRate < 0.30) ?? 0;
+
+    private IEnumerable<UtilizationReport> SortedReports =>
+        (_sortColumn, _sortDesc) switch
+        {
+            ("rate",     true)  => _reports!.OrderByDescending(r => r.UtilizationRate),
+            ("rate",     false) => _reports!.OrderBy(r => r.UtilizationRate),
+            ("hours",    true)  => _reports!.OrderByDescending(r => r.TotalRentedHours),
+            ("revenue",  true)  => _reports!.OrderByDescending(r => r.Revenue),
+            ("rentals",  true)  => _reports!.OrderByDescending(r => r.TotalRentals),
+            ("category", _)     => _reports!.OrderBy(r => r.Category.ToString()),
+            _                   => _reports!.OrderByDescending(r => r.UtilizationRate)
+        };
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync() => await LoadDataAsync();
+
+    private async Task LoadDataAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        _reports   = await Analytics.GetFleetUtilizationReportAsync(SeasonStart, SeasonEnd);
+        _isLoading = false;
+    }
+
+    // ── Sortowanie ────────────────────────────────────────────────────────────
+    private void SortBy(string col)
+    {
+        if (_sortColumn == col) _sortDesc = !_sortDesc;
+        else { _sortColumn = col; _sortDesc = true; }
+    }
+
+    // ── Styl pomocniczy ───────────────────────────────────────────────────────
+    private static string GetRowClass(UtilizationReport r) =>
+        r.UtilizationRate < 0.30 ? "row-warning" :
+        r.UtilizationRate > 0.80 ? "row-excellent" : "";
+
+    private static string GetBarClass(double rate) =>
+        rate < 0.30 ? "bar-low" : rate < 0.60 ? "bar-medium" : "bar-high";
+
+    private static string GetStatusBadgeClass(double rate) =>
+        rate < 0.30 ? "badge-warning" : rate < 0.60 ? "badge-ok" : "badge-excellent";
+
+    private static string GetStatusLabel(double rate) =>
+        rate < 0.30 ? "Niska aktywność" : rate < 0.60 ? "Przeciętna" : "Wysoka aktywność";
+}

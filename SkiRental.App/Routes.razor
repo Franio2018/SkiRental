@@ -1,0 +1,29 @@
+@using System.Reflection
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+
+<Router AppAssembly="@typeof(Routes).Assembly"
+        AdditionalAssemblies="@ExtraAssemblies">
+    <Found Context="routeData">
+        @* Poprawiona ścieżka do MainLayout na .Shared *@
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(SkiRental.App.Shared.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Nie znaleziono strony | SkiRental</PageTitle>
+        <LayoutView Layout="@typeof(SkiRental.App.Shared.MainLayout)">
+            <div class="not-found" style="text-align: center; padding: 2rem;">
+                <h1>404 – Strona nie istnieje</h1>
+                <p>Przepraszamy, ale nie znaleźliśmy niczego pod tym adresem.</p>
+                <a href="/">Wróć do strony głównej</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code {
+    private static readonly System.Reflection.Assembly[] ExtraAssemblies =
+    [
+        typeof(SkiRental.UI.Shared.Components.Booking.BookingWizard).Assembly
+    ];
+}

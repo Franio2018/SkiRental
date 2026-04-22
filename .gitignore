@@ -1,0 +1,57 @@
+## .gitignore dla projektu .NET 9 MAUI
+
+# Build outputs
+bin/
+obj/
+*.user
+.vs/
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!**/packages/repositories.config
+*.nuget.props
+*.nuget.targets
+
+# Pliki wrażliwe – NIGDY nie commituj kluczy API!
+appsettings.Production.json
+appsettings.Local.json
+secrets.json
+*.pfx
+*.p12
+keystore.properties
+google-services.json
+GoogleService-Info.plist
+
+# SQLite bazy danych (dane lokalne)
+*.db
+*.db-shm
+*.db-wal
+
+# Artefakty Android
+*.apk
+*.aab
+*.keystore
+
+# Artefakty iOS
+*.ipa
+*.xcarchive
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Logi
+*.log
+logs/
+
+# Coverage
+coverage*/
+TestResults/
+*.trx
+*.coveragexml
+
+# Blazor
+.playwright/

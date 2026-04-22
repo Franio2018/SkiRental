@@ -1,0 +1,105 @@
+<!--
+    MainPage.xaml
+    Strona MAUI hostująca BlazorWebView z komponentami Razor.
+    Panel pracownika z natywnym skanerem ZXing jest nakładany jako overlay.
+-->
+<ContentPage
+    x:Class="SkiRental.App.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:blazor="clr-namespace:Microsoft.AspNetCore.Components.WebView.Maui;assembly=Microsoft.AspNetCore.Components.WebView.Maui"
+    xmlns:zxing="clr-namespace:ZXing.Net.Maui.Controls;assembly=ZXing.Net.Maui.Controls"
+    xmlns:local="clr-namespace:SkiRental.App" 
+    BackgroundColor="{DynamicResource Background}">
+    <ContentPage.Resources>
+        <ResourceDictionary>
+            <Style x:Key="NavButtonStyle" TargetType="Button">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="TextColor" Value="White" />
+                <Setter Property="BackgroundColor" Value="Transparent" />
+                <Setter Property="Padding" Value="10,8" />
+                <Setter Property="CornerRadius" Value="10" />
+            </Style>
+        </ResourceDictionary>
+    </ContentPage.Resources>
+    <Grid RowDefinitions="*, Auto">
+
+        <blazor:BlazorWebView
+            x:Name="BlazorWebView"
+            HostPage="wwwroot/index.html"
+            Grid.Row="0">
+            <blazor:BlazorWebView.RootComponents>
+                <blazor:RootComponent
+                    Selector="#app"
+                    ComponentType="{x:Type local:Routes}" />
+            </blazor:BlazorWebView.RootComponents>
+        </blazor:BlazorWebView>
+
+        <Grid
+            x:Name="ScannerOverlay"
+            Grid.Row="0"
+            Grid.RowSpan="2"
+            IsVisible="False"
+            BackgroundColor="#CC000000">
+
+            <Grid RowDefinitions="Auto, *, Auto" Margin="20">
+                <Label
+                    Grid.Row="0"
+                    Text="Skanuj kod QR klienta"
+                    TextColor="White"
+                    FontSize="20"
+                    FontAttributes="Bold"
+                    HorizontalOptions="Center"
+                    Margin="0,20,0,10"/>
+
+                <Frame 
+                    Grid.Row="1"
+                    CornerRadius="12"
+                    Padding="0"
+                    IsClippedToBounds="True"
+                    Margin="0,10">
+                    <zxing:CameraBarcodeReaderView
+                        x:Name="BarcodeReader"
+                        BarcodesDetected="OnBarcodesDetected"
+                        Options="{Binding BarcodeOptions}"/>
+                </Frame>
+
+                <Button
+                    Grid.Row="2"
+                    Text="✕ Anuluj skanowanie"
+                    BackgroundColor="Transparent"
+                    BorderColor="White"
+                    BorderWidth="1"
+                    TextColor="White"
+                    Clicked="CloseScannerAsync"
+                    Margin="0,10,0,20"/>
+            </Grid>
+        </Grid>
+
+        <!--
+            ═══════════════════════════════════════════════════════════════════
+            WARSTWA 3: Dolna belka nawigacyjna (MAUI Native)
+            ═══════════════════════════════════════════════════════════════════
+        -->
+        <Grid
+            Grid.Row="1"
+            BackgroundColor="{DynamicResource NavBarBackground}"
+            ColumnDefinitions="*,*,*,*"
+            Padding="0,8">
+
+            <Button Grid.Column="0" Text="🏠&#10;Start"
+                    Command="{Binding NavigateHomeCommand}"
+                    Style="{StaticResource NavButtonStyle}" />
+            <Button Grid.Column="1" Text="🎿&#10;Wypożycz"
+                    Command="{Binding NavigateBookingCommand}"
+                    Style="{StaticResource NavButtonStyle}" />
+            <Button Grid.Column="2" Text="📷&#10;Skaner"
+                    Clicked="OpenScannerAsync"
+                    Style="{StaticResource NavButtonStyle}" />
+            <Button Grid.Column="3" Text="📊&#10;Analityka"
+                    Command="{Binding NavigateAnalyticsCommand}"
+                    Style="{StaticResource NavButtonStyle}" />
+        </Grid>
+
+    </Grid>
+</ContentPage>

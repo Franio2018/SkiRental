@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <!--
+      RCL targetuje TYLKO net9.0 (nie platformy MAUI-specyficzne).
+      Projekt MAUI App automatycznie dobiera właściwy framework przez
+      Asset Target Fallback. Unikamy przez to konfliktu SDK targets
+      i błędu "StaticWebAssetsPrepareForRun does not exist".
+    -->
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SkiRental.UI.Shared</RootNamespace>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SkiRental.Domain\SkiRental.Domain.csproj" />
+    <ProjectReference Include="..\SkiRental.Logic\SkiRental.Logic.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="9.0.0" />
+  </ItemGroup>
+</Project>

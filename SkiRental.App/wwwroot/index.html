@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>SkiRental</title>
+
+    <!-- App styles -->
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="css/booking.css" />
+    <link rel="stylesheet" href="css/employee.css" />
+    <link rel="stylesheet" href="css/analytics.css" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+    <base href="/" />
+</head>
+<body>
+    <div id="app">
+        <!-- Loading indicator – zastępowany przez Blazor -->
+        <div class="app-loading">
+            <div class="ski-loader">
+                <div class="ski-icon">🎿</div>
+                <p>Ładowanie SkiRental…</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Wystąpił nieoczekiwany błąd.
+        <a href="." class="reload">Odśwież</a>
+        <span class="dismiss" onclick="this.parentNode.style.display='none'">✕</span>
+    </div>
+
+    <!-- Blazor WebView script -->
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════════════════
+    JS Bridge – komunikacja MAUI Native ↔ Blazor
+    ═══════════════════════════════════════════════════════════════════════════════
+    -->
+    <script>
+        // Globalny obiekt bridge – wywoływany z MainPage.xaml.cs przez JS Interop
+        window.skiRentalBridge = {
+            // Rejestr komponentów Blazor nasłuchujących na kody QR
+            _qrListeners: [],
+
+            /**
+             * Wywoływane z MainPage.InvokeBlazerQrCallback() gdy ZXing wykryje kod QR.
+             * Przekazuje wynik do pierwszego zarejestrowanego komponentu Blazor.
+             */
+            dispatchQrCode: function (qrCode) {
+                console.log("[skiRentalBridge] QR detected:", qrCode);
+                if (this._qrListeners.length > 0) {
+                    const listener = this._qrListeners[this._qrListeners.length - 1];
+                    listener.invokeMethodAsync("OnQrCodeDetected", qrCode);
+                }
+            },
+
+            /**
+             * Rejestracja komponentu Blazor jako odbiorcy kodów QR.
+             * Wywołaj z @inject IJSRuntime + await JS.InvokeVoidAsync("skiRentalBridge.startQrScanner", dotNetRef)
+             */
+            startQrScanner: function (dotNetRef) {
+                this._qrListeners.push(dotNetRef);
+                console.log("[skiRentalBridge] QR listener registered. Total:", this._qrListeners.length);
+                // Sygnalizuj MAUI aby otworzyć skaner kamery (obsługiwane przez MainPage.OpenScannerAsync)
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage({ type: "openQrScanner" });
+                }
+            },
+
+            /**
+             * Wyrejestruj komponent (wywołaj w IAsyncDisposable.DisposeAsync).
+             */
+            stopQrScanner: function (dotNetRef) {
+                this._qrListeners = this._qrListeners.filter(l => l !== dotNetRef);
+                console.log("[skiRentalBridge] QR listener removed. Total:", this._qrListeners.length);
+            },
+
+            /**
+             * Wibracja zwrotna po pomyślnym skanie (MAUI Haptics).
+             */
+            vibrateFeedback: function () {
+                if ("vibrate" in navigator) {
+                    navigator.vibrate([100, 50, 100]);
+                }
+            }
+        };
+
+        // Uruchom Blazor po załadowaniu bridge
+        Blazor.start();
+    </script>
+</body>
+</html>

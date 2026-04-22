@@ -1,0 +1,26 @@
+@* SkiRental.App/Shared/MainLayout.razor *@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+
+<div class="main-layout">
+    <!-- Nagłówek aplikacji -->
+    <header class="app-header">
+        <div class="header-inner">
+            <a href="/" class="header-logo">
+                <span class="logo-icon">🎿</span>
+                <span class="logo-text">SkiRental</span>
+            </a>
+            <div class="header-actions">
+                <button class="header-btn" type="button" title="Powiadomienia"
+                        @onclick='() => Navigation.NavigateTo("/notifications")'>🔔</button>
+                <button class="header-btn" type="button" title="Profil"
+                        @onclick='() => Navigation.NavigateTo("/profile")'>👤</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Główna zawartość strony -->
+    <main class="app-main">
+        @Body
+    </main>
+</div>
