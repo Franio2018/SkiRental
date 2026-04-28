@@ -116,7 +116,6 @@ public sealed class EfRentalRepository : IRentalRepository
                       && re.Rental.StartTime < seasonEnd
                       && (re.Rental.ActualReturnTime ?? re.Rental.EndTime) > seasonStart)
             .Select(re => re.Rental)
-            .Include(r => r.Payments)
             .AsNoTracking()
             .ToListAsync(ct);
     }
