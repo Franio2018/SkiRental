@@ -14,6 +14,7 @@
     @* ── Hidden Fields for State Management ─────────────────────────────────── *@
     <input type="hidden" id="selected-style" value="@((int)SelectedStyle)" />
     <input type="hidden" id="selected-skill" value="@((int)SelectedSkill)" />
+    <input type="hidden" id="current-step" value="@CurrentStep" />
 
     @* ── Custom Popup Modal (JavaScript-based) ─────────────────────────────── *@
     <div id="custom-popup" class="popup-overlay" style="display: none;" onclick="hidePopup();">
@@ -127,8 +128,7 @@
 
             <button class="btn-primary"
                     type="button"
-                    onclick="showPopup('Przejście do kroku 2', 'Przechodzisz do kroku 2: Rekomendacja sprzętu');"
-                    @onclick="GoToStep2"
+                    onclick="goToStep2();"
                     disabled="@(!IsStep1Valid)">
                 Dalej – Oblicz rekomendację →
             </button>
@@ -503,5 +503,43 @@
                 debugPanel.innerHTML = currentText.replace(skillMatch[0], 'Skill:' + skillText);
             }
         }
+    }
+
+    function goToStep2() {
+        // Show popup first
+        showPopup('Przejście do kroku 2', 'Przechodzisz do kroku 2: Rekomendacja sprzętu');
+        
+        // Update hidden field for current step
+        const currentStepInput = document.getElementById('current-step');
+        if (currentStepInput) {
+            currentStepInput.value = '2';
+        }
+        
+        // Hide step 1 and show step 2
+        const step1 = document.querySelector('.step-profile');
+        const step2 = document.querySelector('.step-recommendation');
+        
+        if (step1) step1.style.display = 'none';
+        if (step2) step2.style.display = 'block';
+        
+        // Update progress indicator
+        updateProgressIndicator(2);
+    }
+
+    function updateProgressIndicator(step) {
+        // Update step circles and labels
+        const steps = document.querySelectorAll('.step');
+        steps.forEach((stepElement, index) => {
+            const stepNumber = index + 1;
+            if (stepNumber < step) {
+                stepElement.classList.add('done');
+                stepElement.classList.remove('active');
+            } else if (stepNumber === step) {
+                stepElement.classList.add('active');
+                stepElement.classList.remove('done');
+            } else {
+                stepElement.classList.remove('active', 'done');
+            }
+        });
     }
 </script>
