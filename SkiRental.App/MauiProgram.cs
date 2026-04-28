@@ -82,6 +82,8 @@ public static class MauiProgram
         // ── MAUI-specific services ─────────────────────────────────────────
         builder.Services.AddSingleton<QrNfcBridgeService>();
         builder.Services.AddSingleton<WeatherService>();
+        builder.Services.AddSingleton<ProfilePictureService>();
+        builder.Services.AddSingleton<AuthenticationService>();
         
         builder.Services.AddSingleton<MainPage>();
         builder.Services.AddSingleton<App>();

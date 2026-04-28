@@ -1,0 +1,166 @@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@inject SkiRental.App.Services.AuthenticationService AuthService
+
+<PageTitle>Logowanie | SkiRental</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-logo">
+                <h1>🎿</h1>
+                <h2>SkiRental</h2>
+            </div>
+            <p class="login-subtitle">Zaloguj się do swojego konta</p>
+        </div>
+
+        <EditForm Model="@loginModel" OnValidSubmit="@HandleLogin" class="login-form">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="error-summary" />
+
+            <div class="form-group">
+                <label for="username">Nazwa użytkownika lub email</label>
+                <InputText id="username" class="form-input" @bind-Value="loginModel.Username" 
+                           placeholder="Wprowadź nazwę użytkownika lub email" />
+                <ValidationMessage For="@(() => loginModel.Username)" />
+            </div>
+
+            <div class="form-group">
+                <label for="password">Hasło</label>
+                <div class="password-input-wrapper">
+                    <InputText type="@passwordType" id="password" class="form-input" 
+                               @bind-Value="loginModel.Password" 
+                               placeholder="Wprowadź hasło" />
+                    <button type="button" class="password-toggle" @onclick="TogglePasswordVisibility">
+                        @passwordIcon
+                    </button>
+                </div>
+                <ValidationMessage For="@(() => loginModel.Password)" />
+            </div>
+
+            <div class="form-options">
+                <label class="checkbox-wrapper">
+                    <InputCheckbox @bind-Value="loginModel.RememberMe" />
+                    <span class="checkmark"></span>
+                    Zapamiętaj mnie
+                </label>
+                <a href="/forgot-password" class="forgot-password-link">Zapomniałeś hasła?</a>
+            </div>
+
+            <button type="submit" class="login-button" disabled="@isLoggingIn">
+                @if (isLoggingIn)
+                {
+                    <span class="spinner"></span>
+                    <span>Logowanie...</span>
+                }
+                else
+                {
+                    <span>Zaloguj się</span>
+                }
+            </button>
+        </EditForm>
+
+        <div class="login-divider">
+            <span>lub</span>
+        </div>
+
+        <div class="social-login">
+            <button class="social-button google" @onclick="LoginWithGoogle">
+                <span class="social-icon">🌐</span>
+                Zaloguj przez Google
+            </button>
+            <button class="social-button facebook" @onclick="LoginWithFacebook">
+                <span class="social-icon">📘</span>
+                Zaloguj przez Facebook
+            </button>
+        </div>
+
+        <div class="login-footer">
+            <p>Nie masz jeszcze konta? <a href="/register" class="register-link">Zarejestruj się</a></p>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginModel loginModel = new();
+    private bool isLoggingIn = false;
+    private string passwordType = "password";
+    private string passwordIcon = "👁️";
+
+    public class LoginModel
+    {
+        [Required(ErrorMessage = "Nazwa użytkownika lub email jest wymagany")]
+        [StringLength(100, ErrorMessage = "Nazwa użytkownika nie może przekraczać 100 znaków")]
+        public string Username { get; set; } = "";
+
+        [Required(ErrorMessage = "Hasło jest wymagane")]
+        [StringLength(100, MinimumLength = 6, ErrorMessage = "Hasło musi mieć od 6 do 100 znaków")]
+        public string Password { get; set; } = "";
+
+        public bool RememberMe { get; set; }
+    }
+
+    private async Task HandleLogin()
+    {
+        isLoggingIn = true;
+        
+        try
+        {
+            var result = await AuthService.LoginAsync(loginModel.Username, loginModel.Password, loginModel.RememberMe);
+            
+            if (result.Success)
+            {
+                // Navigate to home page after successful login
+                NavigationManager.NavigateTo("/");
+            }
+            else
+            {
+                // Show error message - in a real app, you'd display this to the user
+                Console.WriteLine($"Login failed: {result.Message}");
+                // TODO: Add proper error display in the UI
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Login error: {ex.Message}");
+            // TODO: Add proper error display in the UI
+        }
+        finally
+        {
+            isLoggingIn = false;
+        }
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        if (passwordType == "password")
+        {
+            passwordType = "text";
+            passwordIcon = "🙈";
+        }
+        else
+        {
+            passwordType = "password";
+            passwordIcon = "👁️";
+        }
+    }
+
+    private void LoginWithGoogle()
+    {
+        SocialLogin("Google");
+    }
+
+    private void LoginWithFacebook()
+    {
+        SocialLogin("Facebook");
+    }
+
+    private void SocialLogin(string provider)
+    {
+        // TODO: Implement social login
+        Console.WriteLine($"Social login with {provider}");
+    }
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+}

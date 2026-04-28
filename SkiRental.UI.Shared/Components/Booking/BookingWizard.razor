@@ -1,9 +1,8 @@
 @* SkiRental.UI.Shared/Components/Booking/BookingWizard.razor *@
-@* Kreator rezerwacji z Inteligentnym Asystentem (3 kroki) *@
-
 @using SkiRental.Domain.Enums
 @using SkiRental.Domain.Models
 @using SkiRental.Logic.Services
+@using Microsoft.AspNetCore.Components
 
 @inject EquipmentMathService EquipmentMath
 @inject BookingService BookingService
@@ -11,22 +10,23 @@
 
 <div class="booking-wizard">
 
-    @* ── Pasek postępu ─────────────────────────────────────────────────────── *@
+    @* ── Pasek postępu ──────────────────────────────────────────────────── *@
     <div class="wizard-progress">
         @for (int i = 1; i <= 3; i++)
         {
-            var step = i; // capture for lambda
+            var step = i;
             <div class="step @(CurrentStep == step ? "active" : "") @(CurrentStep > step ? "done" : "")">
                 <div class="step-circle">@(CurrentStep > step ? "✓" : step.ToString())</div>
                 <span class="step-label">@StepLabels[step - 1]</span>
             </div>
-            @if (step < 3) { <div class="step-connector"></div> }
+            @if (step < 3)
+            {
+                <div class="step-connector"></div>
+            }
         }
     </div>
 
-    @* ════════════════════════════════════════════════════════════════════════
-       KROK 1 – Dane fizyczne i styl jazdy
-    ════════════════════════════════════════════════════════════════════════ *@
+    @* ── KROK 1: Profil ─────────────────────────────────────────────────── *@
     @if (CurrentStep == 1)
     {
         <div class="wizard-step step-profile">
@@ -37,38 +37,49 @@
                 <div class="form-group">
                     <label>Wzrost (cm)</label>
                     <input type="number"
-                           @bind-value="ProfileHeight" @bind-value:event="oninput"
-                           min="100" max="250" class="form-input" />
+                           @bind-value="ProfileHeight"
+                           @bind-value:event="oninput"
+                           min="100" max="250"
+                           class="form-input" />
                 </div>
                 <div class="form-group">
                     <label>Waga (kg)</label>
                     <input type="number"
-                           @bind-value="ProfileWeight" @bind-value:event="oninput"
-                           step="0.5" min="30" max="300" class="form-input" />
+                           @bind-value="ProfileWeight"
+                           @bind-value:event="oninput"
+                           step="0.5" min="30" max="300"
+                           class="form-input" />
                 </div>
                 <div class="form-group">
                     <label>Rozmiar buta (EU)</label>
                     <input type="number"
-                           @bind-value="ShoeSize" @bind-value:event="oninput"
-                           min="30" max="55" class="form-input" />
+                           @bind-value="ShoeSize"
+                           @bind-value:event="oninput"
+                           min="30" max="55"
+                           class="form-input" />
                 </div>
             </div>
 
             <div class="style-selector">
                 <h3>Styl jazdy</h3>
                 <div class="style-cards">
-                    <div class="style-card @(SelectedStyle == SkiStyle.Classic ? "selected" : "")"
-                         @onclick="() => SelectedStyle = SkiStyle.Classic">
-                        <div class="style-icon">🎿</div>
-                        <h4>Klasyczny</h4>
-                        <p>Narty w śladach, rytmiczny krok. Idealny dla spokojnych tras.</p>
-                    </div>
-                    <div class="style-card @(SelectedStyle == SkiStyle.Skate ? "selected" : "")"
-                         @onclick="() => SelectedStyle = SkiStyle.Skate">
-                        <div class="style-icon">⛷️</div>
-                        <h4>Łyżwowy (Skate)</h4>
-                        <p>Dynamiczny ślizg na twardym śniegu. Wyższe wymagania techniczne.</p>
-                    </div>
+                    <button class="style-card @(SelectedStyle == SkiStyle.Classic ? "selected" : "")"
+                            type="button"
+                            onclick="alert('Wybrano styl: Klasyczny 🎿');"
+                            @onclick="() => SetStyle(SkiStyle.Classic)">
+                        <div class="style-icon" style="pointer-events:none">🎿</div>
+                        <h4 style="pointer-events:none">Klasyczny</h4>
+                        <p style="pointer-events:none">Narty w śladach, rytmiczny krok. Idealny dla spokojnych tras.</p>
+                    </button>
+
+                    <button class="style-card @(SelectedStyle == SkiStyle.Skate ? "selected" : "")"
+                            type="button"
+                            onclick="alert('Wybrano styl: Łyżwowy (Skate) ⛷️');"
+                            @onclick="() => SetStyle(SkiStyle.Skate)">
+                        <div class="style-icon" style="pointer-events:none">⛷️</div>
+                        <h4 style="pointer-events:none">Łyżwowy (Skate)</h4>
+                        <p style="pointer-events:none">Dynamiczny ślizg na twardym śniegu. Wyższe wymagania techniczne.</p>
+                    </button>
                 </div>
             </div>
 
@@ -78,25 +89,32 @@
                     @foreach (SkillLevel level in Enum.GetValues<SkillLevel>())
                     {
                         var lvl = level;
-                        <button class="skill-pill @(SelectedSkill == level ? "active" : "")"
+                        <button class="skill-pill @(SelectedSkill == lvl ? "active" : "")"
                                 type="button"
-                                @onclick="() => SelectedSkill = lvl"
-                                @onclick:preventDefault="true">
+                                onclick="@($"alert('Wybrano poziom: {SkillLabels[lvl]}');")"
+                                @onclick="() => SetSkill(lvl)">
                             @SkillLabels[lvl]
                         </button>
                     }
                 </div>
             </div>
 
-            <button class="btn-primary" type="button" @onclick="GoToStep2" disabled="@(!IsStep1Valid)">
+            @* Debugging HUD *@
+            <div class="debug-panel" style="background:#f8f9fa; border:1px solid #ddd; padding:1rem; margin:1rem 0; border-radius:8px; font-family:monospace; font-size:11px;">
+                <strong>DEBUG:</strong> Valid: @IsStep1Valid | H:@ProfileHeight W:@ProfileWeight S:@ShoeSize | Style:@SelectedStyle
+            </div>
+
+            <button class="btn-primary"
+                    type="button"
+                    onclick="alert('Przechodzisz do kroku 2: Rekomendacja sprzętu');"
+                    @onclick="GoToStep2"
+                    disabled="@(!IsStep1Valid)">
                 Dalej – Oblicz rekomendację →
             </button>
         </div>
     }
 
-    @* ════════════════════════════════════════════════════════════════════════
-       KROK 2 – Rekomendacja algorytmu + dostępny sprzęt
-    ════════════════════════════════════════════════════════════════════════ *@
+    @* ── KROK 2: Rekomendacja ────────────────────────────────────────────── *@
     @if (CurrentStep == 2)
     {
         <div class="wizard-step step-recommendation">
@@ -130,16 +148,13 @@
                             <span class="rec-value">EU @_recommendation.RecommendedBootSize</span>
                         </div>
                     </div>
-
-                    @* Intentionally hidden: BMI-related messaging & raw explanation
-                       (avoid sharing sensitive body-related metrics in UI). *@
                 </div>
 
-                <h3>Dostępny sprzęt pasujący do Twoich parametrów</h3>
+                <h3>Dostępny sprzęt</h3>
                 @if (!_recommendation.MatchingEquipment.Any())
                 {
                     <div class="no-equipment-notice">
-                        ⚠️ Brak dostępnego sprzętu w tym rozmiarze. Skontaktuj się z pracownikiem.
+                        ⚠️ Brak dostępnego sprzętu w tym rozmiarze.
                     </div>
                 }
                 else
@@ -147,8 +162,9 @@
                     <div class="equipment-list">
                         @foreach (var eq in _recommendation.MatchingEquipment)
                         {
+                            var eqId = eq.Id;
                             <div class="equipment-card @(SelectedEquipmentIds.Contains(eq.Id) ? "selected" : "")"
-                                 @onclick="() => ToggleEquipment(eq.Id)">
+                                 @onclick="() => ToggleEquipment(eqId)">
                                 <div class="eq-header">
                                     <span class="eq-category">@eq.Category</span>
                                     @if (SelectedEquipmentIds.Contains(eq.Id))
@@ -159,7 +175,10 @@
                                 <h4>@eq.Brand @eq.Model</h4>
                                 <div class="eq-details">
                                     <span>@eq.Size cm</span>
-                                    @if (eq.Stiffness.HasValue) { <span>Flex @eq.Stiffness</span> }
+                                    @if (eq.Stiffness.HasValue)
+                                    {
+                                        <span>Flex @eq.Stiffness</span>
+                                    }
                                     <span>@eq.DailyRate PLN/doba</span>
                                 </div>
                             </div>
@@ -169,7 +188,10 @@
 
                 <div class="wizard-nav">
                     <button class="btn-secondary" type="button" @onclick="() => CurrentStep = 1">← Wróć</button>
-                    <button class="btn-primary" type="button" @onclick="GoToStep3" disabled="@(!SelectedEquipmentIds.Any())">
+                    <button class="btn-primary"
+                            type="button"
+                            @onclick="GoToStep3"
+                            disabled="@(!SelectedEquipmentIds.Any())">
                         Dalej – Płatność →
                     </button>
                 </div>
@@ -177,9 +199,7 @@
         </div>
     }
 
-    @* ════════════════════════════════════════════════════════════════════════
-       KROK 3 – Termin + BLIK
-    ════════════════════════════════════════════════════════════════════════ *@
+    @* ── KROK 3: Płatność ────────────────────────────────────────────────── *@
     @if (CurrentStep == 3)
     {
         <div class="wizard-step step-payment">
@@ -219,8 +239,7 @@
 
             <div class="blik-section">
                 <label>Kod BLIK (6 cyfr)</label>
-                <input type="text" @bind="BlikCode" maxlength="6" pattern="[0-9]{6}"
-                       placeholder="------" class="blik-input" />
+                <input type="text" @bind="BlikCode" maxlength="6" class="blik-input" placeholder="------" />
             </div>
 
             @if (_bookingError is not null)
@@ -230,7 +249,9 @@
 
             <div class="wizard-nav">
                 <button class="btn-secondary" type="button" @onclick="() => CurrentStep = 2">← Wróć</button>
-                <button class="btn-primary btn-pay" type="button" @onclick="ConfirmBookingAsync"
+                <button class="btn-primary btn-pay"
+                        type="button"
+                        @onclick="ConfirmBookingAsync"
                         disabled="@(_isProcessing || string.IsNullOrWhiteSpace(BlikCode))">
                     @(_isProcessing ? "Przetwarzam…" : $"Zapłać {EstimatedTotal} PLN BLIK")
                 </button>
@@ -238,87 +259,104 @@
         </div>
     }
 
-    @* ════════════════════════════════════════════════════════════════════════
-       SUKCES
-    ════════════════════════════════════════════════════════════════════════ *@
+    @* ── SUKCES ───────────────────────────────────────────────────────────── *@
     @if (CurrentStep == 4 && _bookingResult is not null)
     {
-        <div class="wizard-step step-success">
-            <div class="success-icon">🎉</div>
+        <div class="wizard-step step-success text-center">
+            <div class="success-icon" style="font-size: 3rem;">🎉</div>
             <h2>Rezerwacja potwierdzona!</h2>
             <p>Twój kod QR do odbioru sprzętu:</p>
-            <div class="qr-placeholder">
-                <div class="qr-code-display">@_bookingResult.QrCode</div>
-                <p class="qr-hint">Pokaż ten kod pracownikowi lub zeskanuj przy wejściu.</p>
+            <div class="qr-placeholder" style="border: 2px dashed #ccc; padding: 2rem; margin: 1rem 0;">
+                <div class="qr-code-display" style="font-weight: bold; font-size: 1.5rem;">@_bookingResult.QrCode</div>
+                <p class="qr-hint">Pokaż ten kod pracownikowi przy odbiorze.</p>
             </div>
-            <button class="btn-primary" @onclick='() => Navigation.NavigateTo("/")'>Wróć do strony głównej</button>
+            <button class="btn-primary" type="button" @onclick='() => Navigation.NavigateTo("/")'>
+                Wróć do strony głównej
+            </button>
         </div>
     }
 </div>
 
 @code {
-    // ── Stan kreatora ────────────────────────────────────────────────────────
     private int CurrentStep = 1;
-    private readonly string[] StepLabels = ["Profil", "Sprzęt", "Płatność"];
+    private readonly string[] StepLabels = new[] { "Profil", "Sprzęt", "Płatność" };
 
-    // ── Krok 1 ───────────────────────────────────────────────────────────────
+    // ── Krok 1 Data ─────────────────────────────────────────────────────────
     private int ProfileHeight = 175;
     private decimal ProfileWeight = 75m;
     private int ShoeSize = 42;
     private SkiStyle SelectedStyle = SkiStyle.Classic;
     private SkillLevel SelectedSkill = SkillLevel.Intermediate;
 
-    private bool IsStep1Valid => ProfileHeight is >= 100 and <= 250 &&
-                                 ProfileWeight is >= 30 and <= 300 &&
-                                 ShoeSize is >= 30 and <= 55;
+    private bool IsStep1Valid =>
+        ProfileHeight is >= 100 and <= 250 &&
+        ProfileWeight is >= 30 and <= 300 &&
+        ShoeSize is >= 30 and <= 55;
 
     private static readonly Dictionary<SkillLevel, string> SkillLabels = new()
     {
-        [SkillLevel.Beginner]     = "🟢 Początkujący",
+        [SkillLevel.Beginner] = "🟢 Początkujący",
         [SkillLevel.Intermediate] = "🔵 Średnio zaawansowany",
-        [SkillLevel.Advanced]     = "🟠 Zaawansowany",
-        [SkillLevel.Expert]       = "🔴 Ekspert"
+        [SkillLevel.Advanced] = "🟠 Zaawansowany",
+        [SkillLevel.Expert] = "🔴 Ekspert"
     };
 
-    // ── Krok 2 ───────────────────────────────────────────────────────────────
+    // ── Krok 2 Data ─────────────────────────────────────────────────────────
     private EquipmentRecommendation? _recommendation;
     private bool _isCalculating;
-    private readonly HashSet<int> SelectedEquipmentIds = [];
+    private readonly HashSet<int> SelectedEquipmentIds = new();
 
-    // ── Krok 3 ───────────────────────────────────────────────────────────────
+    // ── Krok 3 Data ─────────────────────────────────────────────────────────
     private DateTime StartTime = DateTime.Now.AddHours(1);
-    private DateTime EndTime   = DateTime.Now.AddDays(1);
+    private DateTime EndTime = DateTime.Now.AddDays(1);
     private string BlikCode = string.Empty;
     private bool _isProcessing;
     private string? _bookingError;
 
     private decimal EstimatedTotal => _recommendation?.MatchingEquipment
         .Where(e => SelectedEquipmentIds.Contains(e.Id))
-        .Sum(e => e.DailyRate * (decimal)(EndTime - StartTime).TotalDays) ?? 0;
+        .Sum(e => e.DailyRate * (decimal)Math.Max(1, (EndTime - StartTime).TotalDays)) ?? 0;
 
-    // ── Krok 4 ───────────────────────────────────────────────────────────────
+    // ── Krok 4 Data ─────────────────────────────────────────────────────────
     private BookingResult? _bookingResult;
 
-    // ── Nawigacja ────────────────────────────────────────────────────────────
+    // ── Logic Methods ───────────────────────────────────────────────────────
+
+    private void SetStyle(SkiStyle style)
+    {
+        SelectedStyle = style;
+        StateHasChanged();
+    }
+
+    private void SetSkill(SkillLevel level)
+    {
+        SelectedSkill = level;
+        StateHasChanged();
+    }
 
     private async Task GoToStep2()
     {
-        CurrentStep    = 2;
+        CurrentStep = 2;
         _isCalculating = true;
         StateHasChanged();
 
         var parameters = new EquipmentSelectionParameters
         {
-            Height     = ProfileHeight,
-            Weight     = ProfileWeight,
-            ShoeSize   = ShoeSize,
-            Style      = SelectedStyle,
+            Height = ProfileHeight,
+            Weight = ProfileWeight,
+            ShoeSize = ShoeSize,
+            Style = SelectedStyle,
             SkillLevel = SelectedSkill
         };
 
         try
         {
             _recommendation = await EquipmentMath.RecommendAsync(parameters);
+        }
+        catch (Exception ex)
+        {
+            _bookingError = $"Błąd: {ex.Message}";
+            CurrentStep = 1;
         }
         finally
         {
@@ -333,6 +371,8 @@
     {
         if (!SelectedEquipmentIds.Remove(id))
             SelectedEquipmentIds.Add(id);
+
+        StateHasChanged();
     }
 
     private async Task ConfirmBookingAsync()
@@ -343,11 +383,11 @@
 
         var request = new CreateBookingRequest
         {
-            CustomerProfileId = 1, // TODO: pobierz z AuthState
-            EquipmentIds      = SelectedEquipmentIds.ToList(),
-            StartTime         = StartTime,
-            EndTime           = EndTime,
-            BlikCode          = BlikCode
+            CustomerProfileId = 1, // Placeholder
+            EquipmentIds = SelectedEquipmentIds.ToList(),
+            StartTime = StartTime,
+            EndTime = EndTime,
+            BlikCode = BlikCode
         };
 
         _bookingResult = await BookingService.CreateBookingAsync(request);
@@ -358,5 +398,6 @@
             _bookingError = _bookingResult.ErrorMessage;
 
         _isProcessing = false;
+        StateHasChanged();
     }
 }

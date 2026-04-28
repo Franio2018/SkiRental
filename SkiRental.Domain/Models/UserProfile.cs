@@ -64,6 +64,62 @@ public class UserProfile
     [NotMapped]
     public bool IsOverweight => Bmi > 24.9m;
 
+    // ── Dane osobiste dodatkowe ──────────────────────────────────────────────
+    /// <summary>Data urodzenia.</summary>
+    public DateTime? DateOfBirth { get; set; }
+
+    /// <summary>Peletny wiek (obliczany).</summary>
+    [NotMapped]
+    public int? Age => DateOfBirth.HasValue ? DateTime.Today.Year - DateOfBirth.Value.Year - (DateTime.Today.DayOfYear < DateOfBirth.Value.DayOfYear ? 1 : 0) : null;
+
+    /// <summary>Adres zamieszkania.</summary>
+    [MaxLength(500)]
+    public string? Address { get; set; }
+
+    /// <summary>Miasto.</summary>
+    [MaxLength(100)]
+    public string? City { get; set; }
+
+    // Preferencje i ustawienia ────────────────────────────────────────────────
+    /// <summary>Zdjecie profilowe (sciezka do pliku).</summary>
+    [MaxLength(500)]
+    public string? ProfileImagePath { get; set; }
+
+    /// <summary>Preferowane trasy narciarskie.</summary>
+    [MaxLength(1000)]
+    public string? FavoriteRoutes { get; set; }
+
+    /// <summary>Notatki o preferencjach klienta.</summary>
+    [MaxLength(2000)]
+    public string? PreferenceNotes { get; set; }
+
+    /// <summary>Czy chce otrzymywac powiadomienia email.</summary>
+    public bool EmailNotificationsEnabled { get; set; } = true;
+
+    /// <summary>Czy chce otrzymywac powiadomienia SMS.</summary>
+    public bool SmsNotificationsEnabled { get; set; } = false;
+
+    // Statystyki i historie ────────────────────────────────────────────────────
+    /// <summary>Laczna liczba wypozyczen.</summary>
+    [NotMapped]
+    public int TotalRentalsCount => Rentals?.Count ?? 0;
+
+    /// <summary>Data ostatniego wypozyczenia.</summary>
+    [NotMapped]
+    public DateTime? LastRentalDate => Rentals?.OrderByDescending(r => r.StartTime).FirstOrDefault()?.StartTime;
+
+    /// <summary>Laczna kwota wydana na wypozyczenia.</summary>
+    [NotMapped]
+    public decimal TotalSpent => Rentals?.Where(r => r.PaymentStatus == PaymentStatus.Paid).Sum(r => r.TotalAmount) ?? 0;
+
+    /// <summary>Ulubiona kategoria sprzetu (najczesciej wypozyczana).</summary>
+    [NotMapped]
+    public EquipmentCategory? FavoriteEquipmentCategory => Rentals?
+        .SelectMany(r => r.RentalEquipments)
+        .GroupBy(re => re.Equipment.Category)
+        .OrderByDescending(g => g.Count())
+        .FirstOrDefault()?.Key;
+
     // ── Systemowe ──────────────────────────────────────────────────────────
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }

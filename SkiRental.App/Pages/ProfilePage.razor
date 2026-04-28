@@ -1,4 +1,8 @@
 @page "/profile"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.App.Services
+@inject ProfilePictureService ProfilePictureService
 
 <PageTitle>Profil | SkiRental</PageTitle>
 
@@ -7,11 +11,353 @@
         <a href="/">Strona główna</a> / Profil
     </nav>
 
-    <div class="wizard-step">
-        <h2>👤 Profil</h2>
-        <p class="step-description">
-            Ten ekran jest jeszcze w przygotowaniu.
-        </p>
-    </div>
+    @if (CurrentUserProfile == null)
+    {
+        <div class="wizard-step">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Wczytujemy profil...</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="profile-container">
+            <!-- Profile Header -->
+            <div class="profile-header">
+                <div class="profile-avatar-section">
+                    <div class="profile-avatar" @onclick="TriggerFileUpload">
+                        @if (!string.IsNullOrEmpty(CurrentUserProfile.ProfileImagePath))
+                        {
+                            var imagePath = GetProfileImageUrl();
+                            if (!string.IsNullOrEmpty(imagePath))
+                            {
+                                <img src="@imagePath" alt="Profile" class="avatar-image" />
+                            }
+                            else
+                            {
+                                <div class="avatar-placeholder">?</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="avatar-placeholder">?</div>
+                        }
+                        <div class="avatar-overlay">
+                            <span>?</span>
+                        </div>
+                    </div>
+                    <input type="file" accept="image/*" @onchange="HandleFileUpload" />
+                </div>
+                
+                <div class="profile-info">
+                    <h1>@CurrentUserProfile.FirstName @CurrentUserProfile.LastName</h1>
+                    @if (CurrentUserProfile.Age.HasValue)
+                    {
+                        <p class="profile-age">Wiek: @CurrentUserProfile.Age lat</p>
+                    }
+                    <p class="profile-member">Członek od: @CurrentUserProfile.CreatedAt.ToString("dd.MM.yyyy")</p>
+                </div>
+            </div>
+
+            <!-- Profile Tabs -->
+            <div class="profile-tabs">
+                <button class="tab-btn @(ActiveTab == "personal" ? "active" : "")" @onclick="SwitchToPersonalTab">
+                    Dane osobowe
+                </button>
+                <button class="tab-btn @(ActiveTab == "physical" ? "active" : "")" @onclick="SwitchToPhysicalTab">
+                    Dane fizyczne
+                </button>
+                <button class="tab-btn @(ActiveTab == "preferences" ? "active" : "")" @onclick="SwitchToPreferencesTab">
+                    Preferencje
+                </button>
+                <button class="tab-btn @(ActiveTab == "statistics" ? "active" : "")" @onclick="SwitchToStatisticsTab">
+                    Statystyki
+                </button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="profile-content">
+                <!-- Personal Data Tab -->
+                @if (ActiveTab == "personal")
+                {
+                    <div class="profile-section">
+                        <h3>Dane osobowe</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Imię</label>
+                                <input type="text" @bind="CurrentUserProfile.FirstName" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Nazwisko</label>
+                                <input type="text" @bind="CurrentUserProfile.LastName" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" @bind="CurrentUserProfile.Email" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Telefon</label>
+                                <input type="tel" @bind="CurrentUserProfile.PhoneNumber" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Data urodzenia</label>
+                                <input type="date" @bind="CurrentUserProfile.DateOfBirth" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Miasto</label>
+                                <input type="text" @bind="CurrentUserProfile.City" class="form-input" />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Adres</label>
+                            <input type="text" @bind="CurrentUserProfile.Address" class="form-input" />
+                        </div>
+                        
+                        <div class="notification-settings">
+                            <h4>Powiadomienia</h4>
+                            <div class="checkbox-group">
+                                <label>
+                                    <input type="checkbox" @bind="CurrentUserProfile.EmailNotificationsEnabled" />
+                                    Powiadomienia email
+                                </label>
+                                <label>
+                                    <input type="checkbox" @bind="CurrentUserProfile.SmsNotificationsEnabled" />
+                                    Powiadomienia SMS
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <button class="btn-primary" @onclick="SaveProfile">Zapisz zmiany</button>
+                    </div>
+                }
+
+                <!-- Physical Data Tab -->
+                @if (ActiveTab == "physical")
+                {
+                    <div class="profile-section">
+                        <h3>Dane fizyczne</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Wzrost (cm)</label>
+                                <input type="number" @bind="CurrentUserProfile.Height" min="100" max="250" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Waga (kg)</label>
+                                <input type="number" @bind="CurrentUserProfile.Weight" step="0.5" min="30" max="300" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Rozmiar buta (EU)</label>
+                                <input type="number" @bind="CurrentUserProfile.ShoeSize" min="30" max="55" class="form-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Poziom zaawansowania</label>
+                                <select @bind="CurrentUserProfile.SkillLevel" class="form-input">
+                                    <option value="@SkillLevel.Beginner">Początkujący</option>
+                                    <option value="@SkillLevel.Intermediate">Średnio zaawansowany</option>
+                                    <option value="@SkillLevel.Advanced">Zaawansowany</option>
+                                    <option value="@SkillLevel.Expert">Ekspert</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Styl jazdy</label>
+                                <select @bind="CurrentUserProfile.PreferredStyle" class="form-input">
+                                    <option value="@SkiStyle.Classic">Klasyczny</option>
+                                    <option value="@SkiStyle.Skate">Światowy (Skate)</option>
+                                    <option value="@SkiStyle.Combi">Kombinowany</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="bmi-display @(CurrentUserProfile.IsBmiNormal ? "bmi-ok" : CurrentUserProfile.IsUnderweight ? "bmi-low" : "bmi-high")">
+                            <span>BMI:</span> @CurrentUserProfile.Bmi
+                            @if (CurrentUserProfile.IsBmiNormal)
+                            {
+                                <span> (w normie)</span>
+                            }
+                            else if (CurrentUserProfile.IsUnderweight)
+                            {
+                                <span> (niedowaga)</span>
+                            }
+                            else
+                            {
+                                <span> (nadwaga)</span>
+                            }
+                        </div>
+                        
+                        <button class="btn-primary" @onclick="SaveProfile">Zapisz zmiany</button>
+                    </div>
+                }
+
+                <!-- Preferences Tab -->
+                @if (ActiveTab == "preferences")
+                {
+                    <div class="profile-section">
+                        <h3>Preferencje narciarskie</h3>
+                        <div class="form-group">
+                            <label>Ulubione trasy narciarskie</label>
+                            <textarea @bind="CurrentUserProfile.FavoriteRoutes" class="form-input" rows="4" 
+                                      placeholder="Opisz swoje ulubione trasy, poziom trudności, warunki..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Notatki o preferencjach</label>
+                            <textarea @bind="CurrentUserProfile.PreferenceNotes" class="form-input" rows="6"
+                                      placeholder="Dodatkowe uwagi o preferencjach sprzętu, stylu jazdy, itp."></textarea>
+                        </div>
+                        
+                        <button class="btn-primary" @onclick="SaveProfile">Zapisz zmiany</button>
+                    </div>
+                }
+
+                <!-- Statistics Tab -->
+                @if (ActiveTab == "statistics")
+                {
+                    <div class="profile-section">
+                        <h3>Statystyki wypożyczeń</h3>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value">@CurrentUserProfile.TotalRentalsCount</div>
+                                <div class="stat-label">Liczba wypożyczeń</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">@CurrentUserProfile.TotalSpent.ToString("C0") PLN</div>
+                                <div class="stat-label">Łącznie wydatki</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">@(CurrentUserProfile.LastRentalDate?.ToString("dd.MM.yyyy") ?? "Brak")</div>
+                                <div class="stat-label">Ostatnie wypożyczenie</div>
+                            </div>
+                            @if (CurrentUserProfile.FavoriteEquipmentCategory.HasValue)
+                            {
+                                <div class="stat-card">
+                                    <div class="stat-value">@CurrentUserProfile.FavoriteEquipmentCategory</div>
+                                    <div class="stat-label">Ulubiony sprzęt</div>
+                                </div>
+                            }
+                        </div>
+                        
+                        <div class="recent-rentals">
+                            <h4>Ostatnie wypożyczenia</h4>
+                            @if (CurrentUserProfile.Rentals?.Any() == true)
+                            {
+                                <div class="rentals-list">
+                                    @foreach (var rental in CurrentUserProfile.Rentals.OrderByDescending(r => r.StartTime).Take(5))
+                                    {
+                                        <div class="rental-item">
+                                            <div class="rental-date">@rental.StartTime.ToString("dd.MM.yyyy")</div>
+                                            <div class="rental-equipment-count">@rental.RentalEquipments.Count sprzętu</div>
+                                            <div class="rental-amount">@rental.TotalAmount PLN</div>
+                                            <div class="rental-status @rental.Status.ToString().ToLower()">@rental.Status</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="no-data">Brak historii wypożyczeń</p>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
 </div>
 
+@code {
+    private UserProfile? CurrentUserProfile { get; set; }
+    private string ActiveTab { get; set; } = "personal";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserProfile();
+    }
+
+    private async Task LoadUserProfile()
+    {
+        // TODO: Replace with actual user ID from authentication
+        var userId = 1;
+        CurrentUserProfile = await GetCurrentUserProfileAsync(userId);
+    }
+
+    private async Task<UserProfile?> GetCurrentUserProfileAsync(int userId)
+    {
+        // TODO: Implement actual database call
+        // For now, return sample data
+        return new UserProfile
+        {
+            Id = userId,
+            FirstName = "Jan",
+            LastName = "Kowalski",
+            Email = "jan.kowalski@example.com",
+            PhoneNumber = "+48 123 456 789",
+            DateOfBirth = new DateTime(1990, 5, 15),
+            City = "Zakopane",
+            Address = "ul. Krupówki 12",
+            Height = 175,
+            Weight = 75m,
+            ShoeSize = 42,
+            SkillLevel = SkillLevel.Intermediate,
+            PreferredStyle = SkiStyle.Classic,
+            EmailNotificationsEnabled = true,
+            SmsNotificationsEnabled = false,
+            FavoriteRoutes = "Trasy niebieskie w Kasprowym Wierchu, szlaki w Dolinie Bystrej",
+            PreferenceNotes = "Wolę spokojne trasy, unikam bardzo stromych zjazdów. Preferuję sprzęt marki Fischer.",
+            CreatedAt = DateTime.UtcNow.AddMonths(-6),
+            Rentals = new List<Rental>() // TODO: Load actual rentals
+        };
+    }
+
+    private void TriggerFileUpload()
+    {
+        // For now, we'll just show the file input directly
+        // In a real implementation, you'd use JavaScript interop to trigger the click
+    }
+
+    private void SwitchToPersonalTab() => ActiveTab = "personal";
+    private void SwitchToPhysicalTab() => ActiveTab = "physical";
+    private void SwitchToPreferencesTab() => ActiveTab = "preferences";
+    private void SwitchToStatisticsTab() => ActiveTab = "statistics";
+
+    // Placeholder for file upload - will be implemented with proper JS interop
+    private async Task HandleFileUpload(ChangeEventArgs e)
+    {
+        // This is a simplified version - in a real app you'd use JS interop to get file data
+        // For now, we'll just simulate the upload
+        if (CurrentUserProfile != null)
+        {
+            try
+            {
+                // Simulate file upload
+                await Task.Delay(500);
+                
+                // For demo purposes, set a placeholder image path
+                CurrentUserProfile.ProfileImagePath = $"user_{CurrentUserProfile.Id}_demo.jpg";
+                await SaveProfile();
+                
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error uploading profile picture: {ex.Message}");
+            }
+        }
+    }
+
+    private string GetProfileImageUrl()
+    {
+        if (string.IsNullOrEmpty(CurrentUserProfile?.ProfileImagePath))
+            return string.Empty;
+
+        var fullPath = ProfilePictureService.GetProfilePicturePath(CurrentUserProfile.ProfileImagePath);
+        return !string.IsNullOrEmpty(fullPath) ? fullPath : string.Empty;
+    }
+
+    private async Task SaveProfile()
+    {
+        // TODO: Implement actual save logic
+        CurrentUserProfile!.UpdatedAt = DateTime.UtcNow;
+        await Task.Delay(300); // Simulate save
+        StateHasChanged();
+    }
+}
