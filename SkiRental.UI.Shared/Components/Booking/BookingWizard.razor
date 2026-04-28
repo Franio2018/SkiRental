@@ -3,12 +3,33 @@
 @using SkiRental.Domain.Models
 @using SkiRental.Logic.Services
 @using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
 
 @inject EquipmentMathService EquipmentMath
 @inject BookingService BookingService
 @inject NavigationManager Navigation
 
 <div class="booking-wizard">
+
+    @* ── Hidden Fields for State Management ─────────────────────────────────── *@
+    <input type="hidden" id="selected-style" value="@((int)SelectedStyle)" />
+    <input type="hidden" id="selected-skill" value="@((int)SelectedSkill)" />
+
+    @* ── Custom Popup Modal (JavaScript-based) ─────────────────────────────── *@
+    <div id="custom-popup" class="popup-overlay" style="display: none;" onclick="hidePopup();">
+        <div class="popup-content" onclick="event.stopPropagation();">
+            <div class="popup-header">
+                <h3 id="popup-title">Tytuł</h3>
+                <button class="popup-close" onclick="hidePopup();">×</button>
+            </div>
+            <div class="popup-body">
+                <p id="popup-message">Wiadomość</p>
+            </div>
+            <div class="popup-footer">
+                <button class="btn-primary" onclick="hidePopup();">OK</button>
+            </div>
+        </div>
+    </div>
 
     @* ── Pasek postępu ──────────────────────────────────────────────────── *@
     <div class="wizard-progress">
@@ -64,18 +85,18 @@
                 <h3>Styl jazdy</h3>
                 <div class="style-cards">
                     <button class="style-card @(SelectedStyle == SkiStyle.Classic ? "selected" : "")"
+                            id="style-classic"
                             type="button"
-                            onclick="alert('Wybrano styl: Klasyczny 🎿');"
-                            @onclick="() => SetStyle(SkiStyle.Classic)">
+                            onclick="selectStyle('classic', 'Wybrano styl: Klasyczny 🎿');">
                         <div class="style-icon" style="pointer-events:none">🎿</div>
                         <h4 style="pointer-events:none">Klasyczny</h4>
                         <p style="pointer-events:none">Narty w śladach, rytmiczny krok. Idealny dla spokojnych tras.</p>
                     </button>
 
                     <button class="style-card @(SelectedStyle == SkiStyle.Skate ? "selected" : "")"
+                            id="style-skate"
                             type="button"
-                            onclick="alert('Wybrano styl: Łyżwowy (Skate) ⛷️');"
-                            @onclick="() => SetStyle(SkiStyle.Skate)">
+                            onclick="selectStyle('skate', 'Wybrano styl: Łyżwowy (Skate) ⛷️');">
                         <div class="style-icon" style="pointer-events:none">⛷️</div>
                         <h4 style="pointer-events:none">Łyżwowy (Skate)</h4>
                         <p style="pointer-events:none">Dynamiczny ślizg na twardym śniegu. Wyższe wymagania techniczne.</p>
@@ -90,9 +111,9 @@
                     {
                         var lvl = level;
                         <button class="skill-pill @(SelectedSkill == lvl ? "active" : "")"
+                                id="skill-@((int)lvl)"
                                 type="button"
-                                onclick="@($"alert('Wybrano poziom: {SkillLabels[lvl]}');")"
-                                @onclick="() => SetSkill(lvl)">
+                                onclick="@($"selectSkill({(int)lvl}, 'Wybrano poziom: {SkillLabels[lvl]}');")">
                             @SkillLabels[lvl]
                         </button>
                     }
@@ -106,7 +127,7 @@
 
             <button class="btn-primary"
                     type="button"
-                    onclick="alert('Przechodzisz do kroku 2: Rekomendacja sprzętu');"
+                    onclick="showPopup('Przejście do kroku 2', 'Przechodzisz do kroku 2: Rekomendacja sprzętu');"
                     @onclick="GoToStep2"
                     disabled="@(!IsStep1Valid)">
                 Dalej – Oblicz rekomendację →
@@ -401,3 +422,86 @@
         StateHasChanged();
     }
 }
+
+@* JavaScript Functions for Popup Control and State Management *@
+<script>
+    function showPopup(title, message) {
+        document.getElementById('popup-title').innerText = title;
+        document.getElementById('popup-message').innerText = message;
+        document.getElementById('custom-popup').style.display = 'flex';
+    }
+
+    function hidePopup() {
+        document.getElementById('custom-popup').style.display = 'none';
+    }
+
+    function selectStyle(style, message) {
+        // Remove selected class from all style cards
+        document.querySelectorAll('.style-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        
+        // Add selected class to clicked style card
+        const styleElement = document.getElementById('style-' + style);
+        if (styleElement) {
+            styleElement.classList.add('selected');
+        }
+        
+        // Update hidden field
+        const styleValue = style === 'classic' ? 0 : 1;
+        document.getElementById('selected-style').value = styleValue;
+        
+        // Update debug panel
+        updateDebugPanel();
+        
+        // Show popup
+        showPopup('Styl jazdy', message);
+    }
+
+    function selectSkill(skillLevel, message) {
+        // Remove active class from all skill pills
+        document.querySelectorAll('.skill-pill').forEach(pill => {
+            pill.classList.remove('active');
+        });
+        
+        // Add active class to clicked skill pill
+        const skillElement = document.getElementById('skill-' + skillLevel);
+        if (skillElement) {
+            skillElement.classList.add('active');
+        }
+        
+        // Update hidden field
+        document.getElementById('selected-skill').value = skillLevel;
+        
+        // Update debug panel
+        updateDebugPanel();
+        
+        // Show popup
+        showPopup('Poziom zaawansowania', message);
+    }
+
+    function updateDebugPanel() {
+        const styleValue = document.getElementById('selected-style').value;
+        const skillValue = document.getElementById('selected-skill').value;
+        
+        const styleText = styleValue === '0' ? 'Classic' : 'Skate';
+        const skillText = skillValue === '0' ? 'Beginner' : 
+                         skillValue === '1' ? 'Intermediate' : 
+                         skillValue === '2' ? 'Advanced' : 'Expert';
+        
+        // Try to update debug panel if it exists
+        const debugPanel = document.querySelector('.debug-panel');
+        if (debugPanel) {
+            const currentText = debugPanel.innerHTML;
+            const styleMatch = currentText.match(/Style:\w+/);
+            const skillMatch = currentText.match(/Skill:\w+/);
+            
+            if (styleMatch) {
+                debugPanel.innerHTML = currentText.replace(styleMatch[0], 'Style:' + styleText);
+            }
+            if (skillMatch) {
+                debugPanel.innerHTML = currentText.replace(skillMatch[0], 'Skill:' + skillText);
+            }
+        }
+    }
+</script>
