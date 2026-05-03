@@ -46,6 +46,10 @@ public static class ServiceCollectionExtensions
             });
         }
 
+        // ── Repository Layer ───────────────────────────────────────────────────
+        services.AddScoped<IEquipmentRepository, EfEquipmentRepository>();
+        services.AddScoped<IRentalRepository, EfRentalRepository>();
+
         // ── Domain Services ────────────────────────────────────────────────
         services.AddScoped<EquipmentMathService>();
         services.AddScoped<BookingService>();

@@ -55,6 +55,18 @@ public static class MauiProgram
             opts.NotifyUrl     = "https://YOUR_API/api/payu/notify";
         });
 
+        // ── JWT configuration ───────────────────────────────────────────────
+        builder.Services.Configure<JwtOptions>(opts =>
+        {
+            // In production, use a secure, randomly generated key (at least 256 bits)
+            // Store this securely in environment variables, Azure Key Vault, or appsettings.json
+            opts.SecretKey = "ThisIsAVerySecureSecretKeyForJWTTokenGeneration123!@#";
+            opts.Issuer = "https://skirent.app";
+            opts.Audience = "SkiRental.App";
+            opts.ExpirationMinutes = 60; // 1 hour
+            opts.ClockSkewMinutes = 5; // 5 minutes
+        });
+
         // ── HTTP Clients ───────────────────────────────────────────────────
         builder.Services.AddHttpClient<PayUPaymentProvider>(client =>
         {
@@ -67,17 +79,14 @@ public static class MauiProgram
             client.Timeout = TimeSpan.FromSeconds(10);
         });
 
-        // ── Repositories ───────────────────────────────────────────────────
-        builder.Services.AddScoped<IEquipmentRepository, EfEquipmentRepository>();
-        builder.Services.AddScoped<IRentalRepository,    EfRentalRepository>();
-
-        // ── Domain Services ────────────────────────────────────────────────
-        builder.Services.AddScoped<EquipmentMathService>();
-        builder.Services.AddScoped<BookingService>();
-        builder.Services.AddScoped<AnalyticsService>();
+        // ── SkiRental Services (includes repositories and domain services) ────────
+        builder.Services.AddSkiRentalServices($"Data Source={dbPath}");
 
         // ── Payment ────────────────────────────────────────────────────────
         builder.Services.AddScoped<IPaymentProvider, PayUPaymentProvider>();
+
+        // ── JWT Token Service ─────────────────────────────────────────────────
+        builder.Services.AddSingleton<JwtTokenService>();
 
         // ── MAUI-specific services ─────────────────────────────────────────
         builder.Services.AddSingleton<QrNfcBridgeService>();

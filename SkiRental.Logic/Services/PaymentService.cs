@@ -136,9 +136,58 @@ public sealed class PayUPaymentProvider : IPaymentProvider
         // PayU obsługuje pre-auth przez dodanie flagi "authorize" w zamówieniu
         // Szczegóły: https://developers.payu.com/en/preauthorize.html
         _logger.LogInformation("Pre-authorizing {Amount} PLN for order {OrderId}", amount, orderId);
-        // TODO: pełna implementacja analogiczna do InitiateBlikPayment
-        await Task.CompletedTask;
-        return PaymentResult.Success($"PREAUTH-{orderId}", amount, "PREAUTH_PENDING");
+
+        try
+        {
+            var token = await GetAccessTokenAsync();
+            var amountGr = (int)(amount * 100); // PayU przyjmuje grosze
+
+            var payload = new
+            {
+                notifyUrl = _options.NotifyUrl,
+                customerIp = "127.0.0.1",
+                merchantPosId = _options.PosId,
+                description,
+                currencyCode = "PLN",
+                totalAmount = amountGr.ToString(),
+                extOrderId = orderId,
+                // Kluczowa flaga dla pre-autoryzacji
+                authorize = "true",
+                products = new[]
+                {
+                    new { name = description, unitPrice = amountGr.ToString(), quantity = "1" }
+                }
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{_options.BaseUrl}/api/v2_1/orders")
+            {
+                Content = JsonContent.Create(payload)
+            };
+            request.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            _logger.LogDebug("PayU pre-auth response: {Body}", body);
+
+            if (!response.IsSuccessStatusCode)
+                return PaymentResult.Failure("PAYU_PREAUTH_ERROR", $"HTTP {(int)response.StatusCode}: {body}");
+
+            var json = JsonDocument.Parse(body).RootElement;
+            var status = json.GetProperty("status").GetProperty("statusCode").GetString();
+            var payUOrderId = json.GetProperty("orderId").GetString();
+
+            return status == "SUCCESS" || status == "WARNING_CONTINUE_3DS"
+                ? PaymentResult.Success(payUOrderId!, amount, "PREAUTH_SUCCESS")
+                : PaymentResult.Failure(status ?? "UNKNOWN", json.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Pre-authorization exception");
+            return PaymentResult.Failure("PREAUTH_EXCEPTION", ex.Message);
+        }
     }
 
     // ── 3. Capture ───────────────────────────────────────────────────────────
@@ -169,9 +218,61 @@ public sealed class PayUPaymentProvider : IPaymentProvider
         _logger.LogInformation("Refunding {TxId} amount={Amount}", externalTransactionId, partialAmount);
         var token = await GetAccessTokenAsync();
 
-        var payload = partialAmount.HasValue
-            ? new { refund = new { description = "Zwrot wypożyczenia", amount = (int)(partialAmount.Value * 100) } }
-            : new { refund = new { description = "Zwrot wypożyczenia", amount = 0 } };
+        int refundAmountGr;
+        
+        if (partialAmount.HasValue)
+        {
+            // Partial refund - use provided amount
+            refundAmountGr = (int)(partialAmount.Value * 100);
+        }
+        else
+        {
+            // Full refund - fetch original transaction amount from PayU
+            try
+            {
+                var statusResponse = await CheckPaymentStatus(externalTransactionId);
+                if (!statusResponse.IsSuccess)
+                {
+                    return PaymentResult.Failure("REFUND_STATUS_ERROR", "Failed to fetch transaction amount for full refund");
+                }
+                
+                // Get the original order details to extract the total amount
+                var orderResponse = await _httpClient.GetAsync(
+                    $"{_options.BaseUrl}/api/v2_1/orders/{externalTransactionId}");
+                
+                if (!orderResponse.IsSuccessStatusCode)
+                {
+                    return PaymentResult.Failure("REFUND_ORDER_ERROR", $"Failed to fetch order details: HTTP {(int)orderResponse.StatusCode}");
+                }
+                
+                var orderBody = await orderResponse.Content.ReadAsStringAsync();
+                var orderJson = JsonDocument.Parse(orderBody).RootElement;
+                var orders = orderJson.GetProperty("orders");
+                
+                if (orders.GetArrayLength() == 0)
+                {
+                    return PaymentResult.Failure("REFUND_ORDER_NOT_FOUND", "Order not found");
+                }
+                
+                var order = orders[0];
+                var totalAmount = order.GetProperty("totalAmount").GetString();
+                refundAmountGr = int.Parse(totalAmount!);
+                
+                _logger.LogDebug("Fetched original transaction amount: {Amount} grosz for order {OrderId}", refundAmountGr, externalTransactionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch transaction amount for full refund");
+                return PaymentResult.Failure("REFUND_AMOUNT_ERROR", $"Failed to determine refund amount: {ex.Message}");
+            }
+        }
+
+        var payload = new { 
+            refund = new { 
+                description = "Zwrot wypożyczenia", 
+                amount = refundAmountGr 
+            } 
+        };
 
         var request = new HttpRequestMessage(
             HttpMethod.Post,
@@ -183,8 +284,10 @@ public sealed class PayUPaymentProvider : IPaymentProvider
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         var response = await _httpClient.SendAsync(request);
+        
+        var refundAmount = (decimal)refundAmountGr / 100m;
         return response.IsSuccessStatusCode
-            ? PaymentResult.Success(externalTransactionId, partialAmount ?? 0m, "REFUNDED")
+            ? PaymentResult.Success(externalTransactionId, refundAmount, "REFUNDED")
             : PaymentResult.Failure("REFUND_ERROR", $"HTTP {(int)response.StatusCode}");
     }
 
