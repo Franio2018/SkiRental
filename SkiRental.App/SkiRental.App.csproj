@@ -23,8 +23,7 @@
 
 		<AssetTargetFallback>$(AssetTargetFallback);net9.0</AssetTargetFallback>
 
-		<DOTNET_HOST_PATH Condition="'$(DOTNET_HOST_PATH)' == ''">C:\Program Files\dotnet\dotnet.exe</DOTNET_HOST_PATH>
-		<DisableBuildCompression>true</DisableBuildCompression>
+				<DisableBuildCompression>true</DisableBuildCompression>
 
 		<OutputType>Exe</OutputType>
 	</PropertyGroup>

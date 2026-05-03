@@ -5,6 +5,7 @@
 @using SkiRental.App.Services
 
 @inject WeatherService Weather
+@inject AuthenticationService Auth
 
 <PageTitle>SkiRental – Strona główna</PageTitle>
 
@@ -47,16 +48,20 @@
             <h3>Moje Wypożyczenia</h3>
             <p>Historia i aktywne rezerwacje</p>
         </a>
-        <a href="/employee" class="action-card employee">
-            <span class="action-icon">📷</span>
-            <h3>Panel Pracownika</h3>
-            <p>Skanuj QR / NFC, zarządzaj zwrotami</p>
-        </a>
-        <a href="/analytics" class="action-card analytics">
-            <span class="action-icon">📊</span>
-            <h3>Analityka</h3>
-            <p>Wskaźniki użycia floty – Back-office</p>
-        </a>
+        
+        @if (Auth.IsAuthenticated && Auth.CurrentRole == UserRole.Worker)
+        {
+            <a href="/employee" class="action-card employee">
+                <span class="action-icon">📷</span>
+                <h3>Panel Pracownika</h3>
+                <p>Skanuj QR / NFC, zarządzaj zwrotami</p>
+            </a>
+            <a href="/analytics" class="action-card analytics">
+                <span class="action-icon">📊</span>
+                <h3>Analityka</h3>
+                <p>Wskaźniki użycia floty – Back-office</p>
+            </a>
+        }
     </div>
 </div>
 

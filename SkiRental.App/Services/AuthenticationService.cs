@@ -7,13 +7,17 @@ public class AuthenticationService
     public bool IsAuthenticated { get; private set; }
     public string? CurrentUsername { get; private set; }
     public string? CurrentUserId { get; private set; }
+    public UserRole CurrentRole { get; private set; } = UserRole.Customer;
+
+    public event Action? AuthenticationChanged;
 
     // Simulate user database - in real app, this would connect to a database
-    private readonly Dictionary<string, (string Password, string UserId, string Username)> _users = new()
+    private readonly Dictionary<string, (string Password, string UserId, string Username, UserRole Role)> _users = new()
     {
-        { "admin", ("password", "1", "Administrator") },
-        { "user", ("user123", "2", "Test User") },
-        { "test@example.com", ("test123", "3", "Test Email User") }
+        { "admin", ("password", "1", "Administrator", UserRole.Worker) },
+        { "worker", ("worker123", "2", "Pracownik", UserRole.Worker) },
+        { "user", ("user123", "3", "Klient", UserRole.Customer) },
+        { "test@example.com", ("test123", "4", "Test Email User", UserRole.Customer) }
     };
 
     public async Task<LoginResult> LoginAsync(string username, string password, bool rememberMe = false)
@@ -38,6 +42,10 @@ public class AuthenticationService
                     IsAuthenticated = true;
                     CurrentUsername = user.Username;
                     CurrentUserId = user.UserId;
+                    CurrentRole = user.Role;
+
+                    // Notify UI components of authentication change
+                    AuthenticationChanged?.Invoke();
 
                     // In a real app, you would:
                     // 1. Generate a JWT token
@@ -62,6 +70,10 @@ public class AuthenticationService
         IsAuthenticated = false;
         CurrentUsername = null;
         CurrentUserId = null;
+        CurrentRole = UserRole.Customer;
+
+        // Notify UI components of authentication change
+        AuthenticationChanged?.Invoke();
 
         // In a real app, you would:
         // 1. Clear stored tokens
@@ -108,7 +120,7 @@ public class AuthenticationService
 
             // Register new user (in real app, save to database)
             var newUserId = (_users.Count + 1).ToString();
-            _users[username.ToLower()] = (password, newUserId, username);
+            _users[username.ToLower()] = (password, newUserId, username, UserRole.Customer);
 
             return new RegisterResult(true, "Rejestracja pomyślna. Możesz się teraz zalogować.");
         }
@@ -117,6 +129,12 @@ public class AuthenticationService
             return new RegisterResult(false, $"Wystąpił błąd podczas rejestracji: {ex.Message}");
         }
     }
+}
+
+public enum UserRole
+{
+    Customer,
+    Worker
 }
 
 public record LoginResult(bool Success, string Message);

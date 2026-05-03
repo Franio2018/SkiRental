@@ -1,6 +1,8 @@
 @* SkiRental.App/Shared/MainLayout.razor *@
 @inherits LayoutComponentBase
 @inject NavigationManager Navigation
+@inject SkiRental.App.Services.AuthenticationService Auth
+@using SkiRental.App.Services
 
 <div class="main-layout">
     <!-- Nagłówek aplikacji -->
@@ -11,10 +13,24 @@
                 <span class="logo-text">SkiRental</span>
             </a>
             <div class="header-actions">
-                <button class="header-btn" type="button" title="Powiadomienia"
-                        @onclick='() => Navigation.NavigateTo("/notifications")'>🔔</button>
-                <button class="header-btn" type="button" title="Profil"
-                        @onclick='() => Navigation.NavigateTo("/profile")'>👤</button>
+                @if (Auth.IsAuthenticated)
+                {
+                    <div class="user-info">
+                        <span class="user-name">@Auth.CurrentUsername</span>
+                        <span class="user-role">@(Auth.CurrentRole == UserRole.Worker ? "Pracownik" : "Klient")</span>
+                    </div>
+                    <button class="header-btn" type="button" title="Powiadomienia"
+                            @onclick='() => Navigation.NavigateTo("/notifications")'>🔔</button>
+                    <button class="header-btn" type="button" title="Profil"
+                            @onclick='() => Navigation.NavigateTo("/profile")'>👤</button>
+                    <button class="header-btn logout-btn" type="button" title="Wyloguj"
+                            @onclick="HandleLogout">🚪</button>
+                }
+                else
+                {
+                    <button class="header-btn login-btn" type="button" title="Zaloguj się"
+                            @onclick='() => Navigation.NavigateTo("/login")'>🔑</button>
+                }
             </div>
         </div>
     </header>
@@ -24,3 +40,11 @@
         @Body
     </main>
 </div>
+
+@code {
+    private void HandleLogout()
+    {
+        Auth.Logout();
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}

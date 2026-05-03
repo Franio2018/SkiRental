@@ -17,6 +17,13 @@
         <EditForm Model="@loginModel" OnValidSubmit="@HandleLogin" class="login-form">
             <DataAnnotationsValidator />
             <ValidationSummary class="error-summary" />
+            
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="error-message">
+                    @errorMessage
+                </div>
+            }
 
             <div class="form-group">
                 <label for="username">Nazwa użytkownika lub email</label>
@@ -86,6 +93,7 @@
     private bool isLoggingIn = false;
     private string passwordType = "password";
     private string passwordIcon = "👁️";
+    private string? errorMessage;
 
     public class LoginModel
     {
@@ -103,6 +111,7 @@
     private async Task HandleLogin()
     {
         isLoggingIn = true;
+        errorMessage = null; // Clear previous errors
         
         try
         {
@@ -115,15 +124,13 @@
             }
             else
             {
-                // Show error message - in a real app, you'd display this to the user
-                Console.WriteLine($"Login failed: {result.Message}");
-                // TODO: Add proper error display in the UI
+                // Show error message to user
+                errorMessage = result.Message;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Login error: {ex.Message}");
-            // TODO: Add proper error display in the UI
+            errorMessage = $"Wystąpił błąd podczas logowania: {ex.Message}";
         }
         finally
         {

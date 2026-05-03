@@ -93,10 +93,10 @@
             <Button Grid.Column="1" Text="🎿&#10;Wypożycz"
                     Command="{Binding NavigateBookingCommand}"
                     Style="{StaticResource NavButtonStyle}" />
-            <Button Grid.Column="2" Text="📷&#10;Skaner"
+            <Button Grid.Column="2" x:Name="ScannerButton" Text="📷&#10;Skaner"
                     Clicked="OpenScannerAsync"
                     Style="{StaticResource NavButtonStyle}" />
-            <Button Grid.Column="3" Text="📊&#10;Analityka"
+            <Button Grid.Column="3" x:Name="AnalyticsButton" Text="📊&#10;Analityka"
                     Command="{Binding NavigateAnalyticsCommand}"
                     Style="{StaticResource NavButtonStyle}" />
         </Grid>

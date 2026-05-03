@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <DOTNET_HOST_PATH Condition="'$(DOTNET_HOST_PATH)' == ''">C:\Program Files\dotnet\dotnet.exe</DOTNET_HOST_PATH>
+  </PropertyGroup>
+</Project>

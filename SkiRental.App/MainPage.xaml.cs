@@ -14,6 +14,7 @@ namespace SkiRental.App;
 public partial class MainPage : ContentPage
 {
     private readonly QrNfcBridgeService _bridge;
+    private readonly AuthenticationService _authService;
 
     // ZXing options – skanuj wyłącznie kody QR
     public BarcodeReaderOptions BarcodeOptions { get; } = new()
@@ -23,14 +24,21 @@ public partial class MainPage : ContentPage
         Multiple  = false
     };
 
-    public MainPage(QrNfcBridgeService bridge)
+    public MainPage(QrNfcBridgeService bridge, AuthenticationService authService)
     {
         InitializeComponent();
         _bridge = bridge;
+        _authService = authService;
         BindingContext = this;
 
         // Subskrybuj zdarzenie z serwisu natywnego (np. skan NFC)
         _bridge.QrCodeDetected += OnQrCodeDetectedFromBridge;
+        
+        // Subscribe to authentication changes
+        _authService.AuthenticationChanged += OnAuthenticationChanged;
+        
+        // Update button visibility based on user role
+        UpdateButtonVisibility();
     }
 
     // ── ZXing callback ───────────────────────────────────────────────────────
@@ -73,6 +81,14 @@ public partial class MainPage : ContentPage
 
     private async void OpenScannerAsync(object? sender, EventArgs e)
     {
+        // Check if user is authenticated and has worker role
+        if (!_authService.IsAuthenticated || _authService.CurrentRole != UserRole.Worker)
+        {
+            await DisplayAlert("Brak uprawnień",
+                "Tylko pracownicy mogą używać skanera QR.", "OK");
+            return;
+        }
+
         // Sprawdź uprawnienia do kamery
         var status = await Permissions.RequestAsync<Permissions.Camera>();
         if (status != PermissionStatus.Granted)
@@ -104,7 +120,35 @@ public partial class MainPage : ContentPage
 
     public Command NavigateHomeCommand     => new(async () => await NavigateToAsync("/"));
     public Command NavigateBookingCommand  => new(async () => await NavigateToAsync("/booking"));
-    public Command NavigateAnalyticsCommand => new(async () => await NavigateToAsync("/analytics"));
+    public Command NavigateAnalyticsCommand => new(async () => await NavigateToWithPermissionAsync("/analytics"));
+
+    private async Task NavigateToWithPermissionAsync(string url)
+    {
+        // Check if user is authenticated and has worker role for analytics
+        if (url == "/analytics" && (!_authService.IsAuthenticated || _authService.CurrentRole != UserRole.Worker))
+        {
+            await DisplayAlert("Brak uprawnień",
+                "Tylko pracownicy mogą przeglądać analitykę.", "OK");
+            return;
+        }
+
+        await NavigateToAsync(url);
+    }
+
+    private void UpdateButtonVisibility()
+    {
+        // Find the buttons by their grid positions
+        var scannerButton = this.FindByName<Button>("ScannerButton");
+        var analyticsButton = this.FindByName<Button>("AnalyticsButton");
+
+        bool isWorker = _authService.IsAuthenticated && _authService.CurrentRole == UserRole.Worker;
+
+        if (scannerButton != null)
+            scannerButton.IsVisible = isWorker;
+
+        if (analyticsButton != null)
+            analyticsButton.IsVisible = isWorker;
+    }
 
     private async Task NavigateToAsync(string url)
     {
@@ -120,11 +164,19 @@ public partial class MainPage : ContentPage
         });
     }
 
+    // ── Authentication state handling ───────────────────────────────────────
+
+    private void OnAuthenticationChanged()
+    {
+        MainThread.BeginInvokeOnMainThread(UpdateButtonVisibility);
+    }
+
     // ── Cleanup ──────────────────────────────────────────────────────────────
 
     protected override void OnDisappearing()
     {
         _bridge.QrCodeDetected -= OnQrCodeDetectedFromBridge;
+        _authService.AuthenticationChanged -= OnAuthenticationChanged;
         base.OnDisappearing();
     }
 }
