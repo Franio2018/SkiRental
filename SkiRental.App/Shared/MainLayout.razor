@@ -3,21 +3,24 @@
 @inject NavigationManager Navigation
 @inject SkiRental.App.Services.AuthenticationService Auth
 @using SkiRental.App.Services
+@using SkiRental.Domain.Models
 
 <div class="main-layout">
-    <!-- Nagłówek aplikacji -->
     <header class="app-header">
         <div class="header-inner">
             <a href="/" class="header-logo">
                 <span class="logo-icon">🎿</span>
                 <span class="logo-text">SkiRental</span>
             </a>
+
             <div class="header-actions">
                 @if (Auth.IsAuthenticated)
                 {
                     <div class="user-info">
                         <span class="user-name">@Auth.CurrentUsername</span>
-                        <span class="user-role">@(Auth.CurrentRole == UserRole.Worker ? "Pracownik" : "Klient")</span>
+                        <span class="user-role role-@Auth.CurrentRole.ToString().ToLower()">
+                            @RoleLabel(Auth.CurrentRole)
+                        </span>
                     </div>
                     <button class="header-btn" type="button" title="Powiadomienia"
                             @onclick='() => Navigation.NavigateTo("/notifications")'>🔔</button>
@@ -29,13 +32,12 @@
                 else
                 {
                     <button class="header-btn login-btn" type="button" title="Zaloguj się"
-                            @onclick='() => Navigation.NavigateTo("/login")'>🔑</button>
+                            @onclick='() => Navigation.NavigateTo("/login")'>🔑 Zaloguj</button>
                 }
             </div>
         </div>
     </header>
 
-    <!-- Główna zawartość strony -->
     <main class="app-main">
         @Body
     </main>
@@ -47,4 +49,11 @@
         Auth.Logout();
         Navigation.NavigateTo("/", forceLoad: true);
     }
+
+    private static string RoleLabel(AppRole role) => role switch
+    {
+        AppRole.Owner  => "Właściciel",
+        AppRole.Worker => "Pracownik",
+        _              => "Klient"
+    };
 }

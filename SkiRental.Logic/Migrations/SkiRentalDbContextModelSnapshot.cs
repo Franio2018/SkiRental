@@ -80,7 +80,7 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("SerialNumber")
                         .IsUnique();
 
-                    b.ToTable("Equipment");
+                    b.ToTable("Equipment", (string)null);
 
                     b.HasData(
                         new
@@ -196,7 +196,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("RentalId");
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.Rental", b =>
@@ -263,7 +263,7 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("QrCode")
                         .IsUnique();
 
-                    b.ToTable("Rentals");
+                    b.ToTable("Rentals", (string)null);
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.RentalEquipment", b =>
@@ -284,7 +284,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("EquipmentId");
 
-                    b.ToTable("RentalEquipments");
+                    b.ToTable("RentalEquipments", (string)null);
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.UserProfile", b =>
@@ -338,7 +338,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("Email");
 
-                    b.ToTable("UserProfiles");
+                    b.ToTable("UserProfiles", (string)null);
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.Payment", b =>

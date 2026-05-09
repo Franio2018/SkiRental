@@ -1,30 +1,29 @@
 @* SkiRental.UI.Shared/Components/Employee/QrScannerPanel.razor *@
-@* Panel pracownika – skanowanie QR do weryfikacji i zwrotu sprzętu *@
-
 @using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
 @using SkiRental.Logic.Services
+@using SkiRental.Logic.Interfaces
 @using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Components.Web
 
 @inject BookingService BookingService
+@inject IAuthenticationService Auth
 @inject IJSRuntime JS
 
 <div class="qr-scanner-panel">
     <div class="panel-header">
         <h2>📷 Panel Pracownika – Skaner QR / NFC</h2>
         <div class="scan-mode-toggle">
-            <button class="mode-btn @(ScanMode == "return" ? "active" : "")"
-                    @onclick='() => ScanMode = "return"'>
+            <button class="mode-btn @(ScanMode == "return"  ? "active" : "")" @onclick='() => SetMode("return")'>
                 🔄 Zwrot sprzętu
             </button>
-            <button class="mode-btn @(ScanMode == "pickup" ? "active" : "")"
-                    @onclick='() => ScanMode = "pickup"'>
+            <button class="mode-btn @(ScanMode == "pickup"  ? "active" : "")" @onclick='() => SetMode("pickup")'>
                 📦 Wydanie sprzętu
             </button>
         </div>
     </div>
 
-    @* ── Strefa skanera (ZXing jest natywnym widokiem MAUI) ────────────────── *@
-    @* Poniższy <div> to placeholder. W projekcie MAUI zamieniany przez MauiQrBridge.cs *@
+    @* ── Scanner viewport ── *@
     <div class="scanner-viewport">
         @if (!_scannerActive)
         {
@@ -35,7 +34,6 @@
         }
         else
         {
-            @* ZXing BarcodeReaderView jest wstrzykiwany tu przez MAUI BlazorWebView bridge *@
             <div id="zxing-native-placeholder" data-active="true" class="scanner-live">
                 <div class="scan-crosshair">
                     <div class="crosshair-corner tl"></div>
@@ -48,157 +46,280 @@
         }
     </div>
 
-    @* ── Pole ręcznego wprowadzenia kodu ────────────────────────────────────── *@
+    @* ── Manual code entry ── *@
     <div class="manual-input-section">
         <label>lub wpisz kod ręcznie</label>
         <div class="manual-row">
-            <input type="text" @bind="ManualQrCode" placeholder="SKI-XXXXXX-…" class="manual-input" />
+            <input type="text" @bind="ManualQrCode" @bind:event="oninput"
+                   placeholder="SKI-XXXXXX-…" class="manual-input"
+                   @onkeydown="HandleEnterKey" />
             <button class="btn-verify" @onclick="ProcessQrCodeAsync" disabled="@_isProcessing">
                 @(_isProcessing ? "Sprawdzam…" : "Weryfikuj")
             </button>
         </div>
     </div>
 
-    @* ── Wynik weryfikacji ───────────────────────────────────────────────────── *@
-    @if (_rentalInfo is not null)
+    @* ── Rental info card ── *@
+    @if (_rentalInfo is not null && _rentalError is null)
     {
-        <div class="rental-info-card @(_rentalError is null ? "success" : "error")">
-            @if (_rentalError is null)
-            {
-                <h3>✅ Wypożyczenie potwierdzone</h3>
-                <div class="rental-details">
-                    <div class="detail-row">
-                        <span>Klient:</span>
-                        <strong>@_rentalInfo.Customer?.FirstName @_rentalInfo.Customer?.LastName</strong>
-                    </div>
-                    <div class="detail-row">
-                        <span>Od / Do:</span>
-                        <strong>@_rentalInfo.StartTime.ToString("dd.MM HH:mm") – @_rentalInfo.EndTime.ToString("dd.MM HH:mm")</strong>
-                    </div>
-                    <div class="detail-row">
-                        <span>Sprzęt:</span>
-                        <strong>@_rentalInfo.RentalEquipments.Count szt.</strong>
-                    </div>
-                    <div class="detail-row">
-                        <span>Płatność:</span>
-                        <strong class="@(_rentalInfo.IsPreauthorized ? "paid" : "unpaid")">
-                            @(_rentalInfo.IsPreauthorized ? "✓ Opłacone" : "⚠ Nieopłacone")
-                        </strong>
-                    </div>
+        <div class="rental-info-card success">
+            <h3>✅ Wypożyczenie potwierdzone</h3>
+            <div class="rental-details">
+                <div class="detail-row">
+                    <span>Klient:</span>
+                    <strong>@_rentalInfo.Customer?.FirstName @_rentalInfo.Customer?.LastName</strong>
                 </div>
+                <div class="detail-row">
+                    <span>Termin:</span>
+                    <strong>@_rentalInfo.StartTime.ToString("dd.MM HH:mm") – @_rentalInfo.EndTime.ToString("dd.MM HH:mm")</strong>
+                </div>
+                <div class="detail-row">
+                    <span>Status:</span>
+                    <strong>@_rentalInfo.Status</strong>
+                </div>
+                <div class="detail-row">
+                    <span>Kwota:</span>
+                    <strong>@_rentalInfo.TotalAmount.ToString("N2") zł</strong>
+                </div>
+            </div>
 
-                @* Ocena stanu sprzętu przy zwrocie *@
-                @if (ScanMode == "return")
+            @* ── Sprzęt lista ── *@
+            <div class="equipment-list">
+                <h4>Sprzęt (@_rentalInfo.RentalEquipments.Count szt.)</h4>
+                @foreach (var re in _rentalInfo.RentalEquipments)
                 {
-                    <div class="condition-assessment">
-                        <h4>Ocena stanu zwracanego sprzętu</h4>
-                        @foreach (var re in _rentalInfo.RentalEquipments)
+                    <div class="equipment-item">
+                        <span>@re.Equipment.Brand @re.Equipment.Model (@re.Equipment.SerialNumber)</span>
+
+                        @* Condition picker — shown only in return mode *@
+                        @if (ScanMode == "return")
                         {
-                            <div class="condition-row">
-                                <span>Sprzęt #@re.EquipmentId</span>
-                                <div class="condition-stars">
-                                    @for (int star = 1; star <= 5; star++)
-                                    {
-                                        var s = star;
-                                        <button class="star @(EquipmentConditions.GetValueOrDefault(re.EquipmentId, 5) >= s ? "filled" : "")"
-                                                @onclick="() => EquipmentConditions[re.EquipmentId] = s">★</button>
-                                    }
-                                </div>
+                            <div class="condition-picker">
+                                <span class="condition-label">Stan (1–5):</span>
+                                @for (int i = 1; i <= 5; i++)
+                                {
+                                    var score = i;
+                                    <button class="condition-btn @(_conditions.GetValueOrDefault(re.EquipmentId) == score ? "selected" : "")"
+                                            @onclick="() => _conditions[re.EquipmentId] = score">
+                                        @score
+                                    </button>
+                                }
                             </div>
                         }
                     </div>
+                }
+            </div>
 
-                    <button class="btn-confirm-return" @onclick="ConfirmReturnAsync">
-                        ✅ Potwierdź zwrot i zamknij wypożyczenie
+            @* ── Action buttons ── *@
+            <div class="rental-actions">
+                @if (ScanMode == "pickup" && _rentalInfo.Status == RentalStatus.Pending)
+                {
+                    <button class="btn-primary" @onclick="ActivateRentalAsync" disabled="@_isProcessing">
+                        📦 Wydaj sprzęt (Aktywuj)
                     </button>
                 }
-            }
-            else
-            {
-                <h3>❌ Błąd</h3>
-                <p>@_rentalError</p>
-            }
+                else if (ScanMode == "return" && _rentalInfo.Status == RentalStatus.Active)
+                {
+                    <button class="btn-primary" @onclick="ProcessReturnAsync" disabled="@_isProcessing">
+                        🔄 Zatwierdź zwrot
+                    </button>
+                }
+                else
+                {
+                    <p class="status-note">
+                        Wypożyczenie ma status <strong>@_rentalInfo.Status</strong>. Brak dostępnych akcji.
+                    </p>
+                }
+            </div>
         </div>
     }
 
-    @if (_returnConfirmed)
+    @* ── Error card ── *@
+    @if (_rentalError is not null)
     {
-        <div class="return-success">
-            🎉 Zwrot zarejestrowany! Sprzęt jest teraz dostępny.
+        <div class="rental-info-card error">
+            <h3>❌ Błąd</h3>
+            <p>@_rentalError</p>
+            <button class="btn-secondary" @onclick="Reset">Spróbuj ponownie</button>
+        </div>
+    }
+
+    @* ── Damage surcharge alert ── *@
+    @if (_damageAlert is not null)
+    {
+        <div class="damage-alert">
+            <h3>⚠️ Sprzęt uszkodzony</h3>
+            <p>@_damageAlert</p>
+            <p class="damage-note">Skontaktuj się z Właścicielem w celu naliczenia dopłaty za uszkodzenia.</p>
+            <button class="btn-primary" @onclick="Reset">Zamknij</button>
+        </div>
+    }
+
+    @* ── Success banner ── *@
+    @if (_successMessage is not null)
+    {
+        <div class="success-banner">
+            ✅ @_successMessage
         </div>
     }
 </div>
 
 @code {
-    // ── Stan ─────────────────────────────────────────────────────────────────
-    private string ScanMode = "return";
-    private bool _scannerActive;
+    private string ScanMode  = "return";
     private string ManualQrCode = string.Empty;
+    private bool _scannerActive;
     private bool _isProcessing;
 
-    private Rental? _rentalInfo;
-    private string? _rentalError;
-    private bool _returnConfirmed;
+    private Rental?       _rentalInfo;
+    private string?       _rentalError;
+    private string?       _successMessage;
+    private string?       _damageAlert;
 
-    private Dictionary<int, int> EquipmentConditions = new();
+    // equipmentId → condition score (1–5) for return flow
+    private Dictionary<int, int> _conditions = new();
 
-    // ── Zdarzenie wywoływane przez natywny bridge MAUI ───────────────────────
-    /// <summary>
-    /// Ta metoda jest wywoływana przez MAUI ZXing bridge gdy skaner wykryje kod.
-    /// W MauiQrBridge.cs rejestrujemy: blazorWebView.RootComponents → JS Interop
-    /// </summary>
-    [JSInvokable("OnQrCodeDetected")]
-    public async Task OnQrCodeDetected(string qrCode)
+    private void SetMode(string mode)
     {
-        ManualQrCode = qrCode;
-        await ProcessQrCodeAsync();
-        StateHasChanged();
+        ScanMode = mode;
+        Reset();
+    }
+
+    private void Reset()
+    {
+        _rentalInfo     = null;
+        _rentalError    = null;
+        _successMessage = null;
+        _damageAlert    = null;
+        _conditions     = new();
+        ManualQrCode    = string.Empty;
+    }
+
+    private async Task HandleEnterKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ProcessQrCodeAsync();
+        }
     }
 
     private async Task ActivateScannerAsync()
     {
         _scannerActive = true;
-        // Powiadamiamy MAUI native layer przez JS interop
-        await JS.InvokeVoidAsync("skiRentalBridge.startQrScanner",
-            DotNetObjectReference.Create(this));
+        // ZXing native scanner is activated via MAUI bridge (QrNfcBridgeService)
+        // The bridge calls JS interop which triggers OnQrCodeScanned below.
+        await JS.InvokeVoidAsync("skiRental.activateScanner");
+    }
+
+    [JSInvokable("OnQrCodeScanned")]
+    public async Task OnQrCodeScanned(string qrCode)
+    {
+        ManualQrCode = qrCode;
+        await ProcessQrCodeAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ProcessQrCodeAsync()
     {
         if (string.IsNullOrWhiteSpace(ManualQrCode)) return;
 
-        _isProcessing    = true;
-        _rentalError     = null;
-        _rentalInfo      = null;
-        _returnConfirmed = false;
-        StateHasChanged();
+        _isProcessing   = true;
+        _rentalInfo     = null;
+        _rentalError    = null;
+        _successMessage = null;
+        _conditions     = new();
 
-        // TODO: wstrzyknąć IRentalRepository zamiast BookingService (lub rozszerzyć serwis)
-        // Na potrzeby schematu - mockujemy fetch:
-        await Task.Delay(500); // symulacja zapytania do DB
-        _rentalError = "Implementacja: wstrzyknij IRentalRepository i wywołaj GetByQrCodeAsync()";
+        try
+        {
+            // Look up rental by QR code using the repository via BookingService
+            // NOTE: BookingService.GetByQrCode is a thin wrapper we call here
+            // directly via EF — in production this would go through an API endpoint.
+            var rental = await BookingService.GetRentalByQrCodeAsync(ManualQrCode);
 
-        _isProcessing = false;
+            if (rental is null)
+                _rentalError = $"Nie znaleziono wypożyczenia dla kodu: {ManualQrCode}";
+            else
+            {
+                _rentalInfo = rental;
+                // Pre-fill conditions at 5 (perfect) for return mode
+                foreach (var re in rental.RentalEquipments)
+                    _conditions[re.EquipmentId] = 5;
+            }
+        }
+        catch (Exception ex)
+        {
+            _rentalError = $"Błąd: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
     }
 
-    private async Task ConfirmReturnAsync()
+    private async Task ActivateRentalAsync()
     {
+        if (_rentalInfo is null) return;
         _isProcessing = true;
-        StateHasChanged();
 
-        var result = await BookingService.ProcessReturnByQrCodeAsync(
-            ManualQrCode, EquipmentConditions);
-
-        if (result.IsSuccess)
+        try
         {
-            _returnConfirmed = true;
-            _rentalInfo      = null;
-        }
-        else
-        {
-            _rentalError = result.ErrorMessage;
-        }
+            var result = await BookingService.ActivateRentalAsync(
+                _rentalInfo.Id, Auth.CurrentUserId ?? 0);
 
-        _isProcessing = false;
+            if (result.IsSuccess)
+            {
+                _successMessage = $"Sprzęt wydany. Wypożyczenie #{_rentalInfo.Id} aktywne.";
+                _rentalInfo     = null;
+            }
+            else
+            {
+                _rentalError = result.ErrorMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _rentalError = $"Błąd aktywacji: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task ProcessReturnAsync()
+    {
+        if (_rentalInfo is null) return;
+        _isProcessing = true;
+
+        try
+        {
+            var result = await BookingService.ProcessReturnByQrCodeAsync(
+                ManualQrCode, _conditions);
+
+            if (result.IsSuccess)
+            {
+                _successMessage = $"Zwrot zarejestrowany o {result.ReturnTime?.ToString("HH:mm")}.";
+
+                if (result.DamagedEquipmentIds.Any())
+                {
+                    var ids = string.Join(", ", result.DamagedEquipmentIds);
+                    _damageAlert = $"Sprzęt o ID [{ids}] zwrócony w stanie poniżej 3/5. " +
+                                   "Sprawdź uszkodzenia i nalicz dopłatę.";
+                }
+
+                _rentalInfo = null;
+            }
+            else
+            {
+                _rentalError = result.ErrorMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _rentalError = $"Błąd zwrotu: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
     }
 }

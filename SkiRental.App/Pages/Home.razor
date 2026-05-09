@@ -1,8 +1,6 @@
-@* ════════════════════════════════════════════════════════════════════════════
-   Pages/Home.razor
-════════════════════════════════════════════════════════════════════════════ *@
 @page "/"
 @using SkiRental.App.Services
+@using SkiRental.Domain.Models
 
 @inject WeatherService Weather
 @inject AuthenticationService Auth
@@ -15,10 +13,19 @@
             <div class="hero-logo">🎿</div>
             <h1>SkiRental</h1>
             <p class="hero-subtitle">Wypożyczalnia Nart Biegowych</p>
+            @if (Auth.IsAuthenticated)
+            {
+                <p class="hero-user">
+                    Zalogowany jako <strong>@Auth.CurrentUsername</strong>
+                    <span class="role-badge role-@Auth.CurrentRole.ToString().ToLower()">
+                        @RoleLabel(Auth.CurrentRole)
+                    </span>
+                </p>
+            }
         </div>
     </header>
 
-    @* Warunki narciarskie *@
+    @* Ski conditions widget *@
     @if (_weather is not null)
     {
         <div class="weather-widget @(_weather.IsGoodForSkiing ? "good" : "warning")">
@@ -36,30 +43,67 @@
         </div>
     }
 
-    @* Karty akcji *@
+    @* Action cards — filtered by role *@
     <div class="action-grid">
+
+        @* ── Customer & all roles ── *@
         <a href="/booking" class="action-card primary">
             <span class="action-icon">🎿</span>
             <h3>Nowe Wypożyczenie</h3>
             <p>Dobierz sprzęt z pomocą Inteligentnego Asystenta</p>
         </a>
+
         <a href="/my-rentals" class="action-card">
             <span class="action-icon">📋</span>
             <h3>Moje Wypożyczenia</h3>
             <p>Historia i aktywne rezerwacje</p>
         </a>
-        
-        @if (Auth.IsAuthenticated && Auth.CurrentRole == UserRole.Worker)
+
+        @* ── Worker + Owner ── *@
+        @if (Auth.IsWorker)
         {
             <a href="/employee" class="action-card employee">
                 <span class="action-icon">📷</span>
                 <h3>Panel Pracownika</h3>
                 <p>Skanuj QR / NFC, zarządzaj zwrotami</p>
             </a>
+
             <a href="/analytics" class="action-card analytics">
                 <span class="action-icon">📊</span>
                 <h3>Analityka</h3>
-                <p>Wskaźniki użycia floty – Back-office</p>
+                <p>Wskaźniki użycia floty</p>
+            </a>
+        }
+
+        @* ── Owner only ── *@
+        @if (Auth.IsOwner)
+        {
+            <a href="/equipment-management" class="action-card owner">
+                <span class="action-icon">🎿</span>
+                <h3>Zarządzanie Sprzętem</h3>
+                <p>Dodaj, edytuj, wycofaj sprzęt z floty</p>
+            </a>
+
+            <a href="/staff-management" class="action-card owner">
+                <span class="action-icon">👥</span>
+                <h3>Zarządzanie Personelem</h3>
+                <p>Konta pracowników, role, blokady</p>
+            </a>
+        }
+
+        @* ── Not logged in ── *@
+        @if (!Auth.IsAuthenticated)
+        {
+            <a href="/login" class="action-card auth">
+                <span class="action-icon">🔑</span>
+                <h3>Zaloguj się</h3>
+                <p>Uzyskaj dostęp do swojego konta</p>
+            </a>
+
+            <a href="/register" class="action-card auth">
+                <span class="action-icon">✨</span>
+                <h3>Zarejestruj się</h3>
+                <p>Utwórz konto klienta</p>
             </a>
         }
     </div>
@@ -71,6 +115,13 @@
     protected override async Task OnInitializedAsync()
     {
         try { _weather = await Weather.GetSkiConditionsAsync(); }
-        catch { /* ignoruj – widżet jest opcjonalny */ }
+        catch { /* weather widget is optional */ }
     }
+
+    private static string RoleLabel(AppRole role) => role switch
+    {
+        AppRole.Owner  => "Właściciel",
+        AppRole.Worker => "Pracownik",
+        _              => "Klient"
+    };
 }

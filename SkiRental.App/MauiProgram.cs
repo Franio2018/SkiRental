@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SkiRental.Logic;
@@ -17,13 +18,12 @@ public static class MauiProgram
 
         builder
             .UseMauiApp<App>()
-            // ── ZXing QR/Barcode scanner ───────────────────────────────────
             .UseBarcodeReader()
             .ConfigureFonts(fonts =>
             {
-                fonts.AddFont("OpenSans-Regular.ttf",    "OpenSansRegular");
-                fonts.AddFont("OpenSans-Semibold.ttf",   "OpenSansSemibold");
-                fonts.AddFont("Montserrat-Bold.ttf",     "MontserratBold");
+                fonts.AddFont("OpenSans-Regular.ttf",  "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                fonts.AddFont("Montserrat-Bold.ttf",   "MontserratBold");
             });
 
         // ── Blazor WebView ────────────────────────────────────────────────
@@ -31,41 +31,27 @@ public static class MauiProgram
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
-        //builder.Logging.AddDebug();
 #endif
 
+        // ── Configuration (appsettings.json) ──────────────────────────────
+        // appsettings.json is an embedded resource in the MAUI project.
+        // Override with environment-specific file or user secrets in development.
+        var config = builder.Configuration;
+
         // ── EF Core – SQLite (offline first) ─────────────────────────────
-        var dbPath = Path.Combine(
-            FileSystem.AppDataDirectory, "SkiRental.db");
+        var dbPath = Path.Combine(FileSystem.AppDataDirectory, "SkiRental.db");
+        var connectionString = $"Data Source={dbPath}";
 
         builder.Services.AddDbContext<SkiRentalDbContext>(opts =>
-            opts.UseSqlite($"Data Source={dbPath}")
-                .EnableSensitiveDataLogging(false), // wyłącz w prod
+            opts.UseSqlite(connectionString)
+                .EnableSensitiveDataLogging(false),
             ServiceLifetime.Scoped);
 
-        // ── PayU configuration ────────────────────────────────────────────
-        builder.Services.Configure<PayUOptions>(opts =>
-        {
-            // W produkcji odczytaj z appsettings.json lub Azure Key Vault
-            opts.PosId        = "YOUR_POS_ID";
-            opts.SignatureKey  = "YOUR_SIGNATURE_KEY";
-            opts.ClientId      = "YOUR_CLIENT_ID";
-            opts.ClientSecret  = "YOUR_CLIENT_SECRET";
-            opts.BaseUrl       = "https://secure.snd.payu.com"; // sandbox
-            opts.NotifyUrl     = "https://YOUR_API/api/payu/notify";
-        });
+        // ── JWT configuration (from appsettings.json) ──────────────────────
+        builder.Services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
 
-        // ── JWT configuration ───────────────────────────────────────────────
-        builder.Services.Configure<JwtOptions>(opts =>
-        {
-            // In production, use a secure, randomly generated key (at least 256 bits)
-            // Store this securely in environment variables, Azure Key Vault, or appsettings.json
-            opts.SecretKey = "ThisIsAVerySecureSecretKeyForJWTTokenGeneration123!@#";
-            opts.Issuer = "https://skirent.app";
-            opts.Audience = "SkiRental.App";
-            opts.ExpirationMinutes = 60; // 1 hour
-            opts.ClockSkewMinutes = 5; // 5 minutes
-        });
+        // ── PayU configuration (from appsettings.json) ────────────────────
+        builder.Services.Configure<PayUOptions>(config.GetSection(PayUOptions.SectionName));
 
         // ── HTTP Clients ───────────────────────────────────────────────────
         builder.Services.AddHttpClient<PayUPaymentProvider>(client =>
@@ -79,28 +65,30 @@ public static class MauiProgram
             client.Timeout = TimeSpan.FromSeconds(10);
         });
 
-        // ── SkiRental Services (includes repositories and domain services) ────────
-        builder.Services.AddSkiRentalServices($"Data Source={dbPath}");
+        // ── SkiRental domain services (repos, BookingService, Analytics…) ─
+        builder.Services.AddSkiRentalServices(connectionString);
 
-        // ── Payment ────────────────────────────────────────────────────────
+        // ── Payment provider ──────────────────────────────────────────────
         builder.Services.AddScoped<IPaymentProvider, PayUPaymentProvider>();
 
-        // ── JWT Token Service ─────────────────────────────────────────────────
+        // ── App-layer services ────────────────────────────────────────────
+        // JwtTokenService: Singleton — stateless, safe to share across requests.
         builder.Services.AddSingleton<JwtTokenService>();
 
-        // ── MAUI-specific services ─────────────────────────────────────────
+        // AuthenticationService: Singleton — holds current session state for the app lifetime.
+        // Uses IServiceScopeFactory internally to resolve Scoped DbContext safely.
+        builder.Services.AddSingleton<AuthenticationService>();
+
         builder.Services.AddSingleton<QrNfcBridgeService>();
         builder.Services.AddSingleton<WeatherService>();
         builder.Services.AddSingleton<ProfilePictureService>();
-        builder.Services.AddSingleton<AuthenticationService>();
-        
+
         builder.Services.AddSingleton<MainPage>();
         builder.Services.AddSingleton<App>();
 
         var app = builder.Build();
 
-        // Ensure the SQLite schema exists (migrations) before any pages query data
-        // e.g. Analytics tab. In MAUI we can't easily await here, so run and log failures.
+        // ── Apply EF migrations on startup ────────────────────────────────
         try
         {
             using var scope = app.Services.CreateScope();
@@ -109,8 +97,9 @@ public static class MauiProgram
         }
         catch (Exception ex)
         {
-            var logger = app.Services.GetService<ILoggerFactory>()?.CreateLogger("Startup");
-            logger?.LogError(ex, "Failed to migrate SQLite database on startup.");
+            var logger = app.Services.GetService<ILoggerFactory>()
+                ?.CreateLogger("Startup");
+            logger?.LogError(ex, "Failed to apply SQLite migrations on startup.");
         }
 
         return app;

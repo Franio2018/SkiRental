@@ -6,7 +6,126 @@ using SkiRental.Logic.Interfaces;
 namespace SkiRental.Logic.Services;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EfEquipmentRepository
+// EfUserRepository
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// EF Core implementation of <see cref="IUserRepository"/>.
+/// Handles both <see cref="AppUser"/> (credentials) and the linked
+/// <see cref="UserProfile"/> (physical measurements / preferences).
+/// </summary>
+public sealed class EfUserRepository : IUserRepository
+{
+    private readonly SkiRentalDbContext _db;
+
+    public EfUserRepository(SkiRentalDbContext db) => _db = db;
+
+    public async Task<AppUser?> GetByUsernameAsync(string username, CancellationToken ct = default)
+        => await _db.AppUsers
+            .Include(u => u.Profile)
+            .FirstOrDefaultAsync(u => u.Username == username.ToLowerInvariant(), ct);
+
+    public async Task<AppUser?> GetByIdAsync(int id, CancellationToken ct = default)
+        => await _db.AppUsers
+            .Include(u => u.Profile)
+            .FirstOrDefaultAsync(u => u.Id == id, ct);
+
+    public async Task<IReadOnlyList<AppUser>> GetAllAsync(CancellationToken ct = default)
+        => await _db.AppUsers
+            .Include(u => u.Profile)
+            .OrderBy(u => u.Role)
+            .ThenBy(u => u.Username)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+    public async Task<AppUser> CreateAsync(AppUser user, CancellationToken ct = default)
+    {
+        user.Username = user.Username.ToLowerInvariant();
+        _db.AppUsers.Add(user);
+        await _db.SaveChangesAsync(ct);
+        return user;
+    }
+
+    public async Task UpdateAsync(AppUser user, CancellationToken ct = default)
+    {
+        user.Username = user.Username.ToLowerInvariant();
+        _db.AppUsers.Update(user);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        await _db.AppUsers.Where(u => u.Id == id).ExecuteDeleteAsync(ct);
+    }
+
+    public async Task<bool> UsernameExistsAsync(string username, CancellationToken ct = default)
+        => await _db.AppUsers
+            .AnyAsync(u => u.Username == username.ToLowerInvariant(), ct);
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    public async Task<UserProfile?> GetProfileByUserIdAsync(int appUserId, CancellationToken ct = default)
+    {
+        var user = await _db.AppUsers
+            .Include(u => u.Profile)
+            .FirstOrDefaultAsync(u => u.Id == appUserId, ct);
+        return user?.Profile;
+    }
+
+    /// <summary>
+    /// Creates a new UserProfile (or updates an existing one) and links it
+    /// to the given AppUser. Uses a single SaveChanges call.
+    /// </summary>
+    public async Task<UserProfile> UpsertProfileAsync(
+        int appUserId, UserProfile profile, CancellationToken ct = default)
+    {
+        var user = await _db.AppUsers
+            .Include(u => u.Profile)
+            .FirstOrDefaultAsync(u => u.Id == appUserId, ct)
+            ?? throw new InvalidOperationException($"AppUser {appUserId} not found.");
+
+        if (user.Profile is null)
+        {
+            // Create new profile and link
+            profile.CreatedAt = DateTime.UtcNow;
+            _db.UserProfiles.Add(profile);
+            await _db.SaveChangesAsync(ct);          // get profile.Id
+
+            user.UserProfileId = profile.Id;
+            _db.AppUsers.Update(user);
+        }
+        else
+        {
+            // Update existing profile fields (preserve Id and CreatedAt)
+            var existing = user.Profile;
+            existing.FirstName               = profile.FirstName;
+            existing.LastName                = profile.LastName;
+            existing.Email                   = profile.Email;
+            existing.PhoneNumber             = profile.PhoneNumber;
+            existing.Height                  = profile.Height;
+            existing.Weight                  = profile.Weight;
+            existing.ShoeSize                = profile.ShoeSize;
+            existing.SkillLevel              = profile.SkillLevel;
+            existing.PreferredStyle          = profile.PreferredStyle;
+            existing.DateOfBirth             = profile.DateOfBirth;
+            existing.Address                 = profile.Address;
+            existing.City                    = profile.City;
+            existing.FavoriteRoutes          = profile.FavoriteRoutes;
+            existing.PreferenceNotes         = profile.PreferenceNotes;
+            existing.EmailNotificationsEnabled = profile.EmailNotificationsEnabled;
+            existing.SmsNotificationsEnabled = profile.SmsNotificationsEnabled;
+            existing.UpdatedAt               = DateTime.UtcNow;
+            _db.UserProfiles.Update(existing);
+            profile = existing;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return profile;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EfEquipmentRepository (extended with Create + Update)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 public sealed class EfEquipmentRepository : IEquipmentRepository
@@ -50,10 +169,23 @@ public sealed class EfEquipmentRepository : IEquipmentRepository
             .AsNoTracking()
             .ToListAsync(ct);
     }
+
+    public async Task<Equipment> CreateAsync(Equipment equipment, CancellationToken ct = default)
+    {
+        _db.Equipment.Add(equipment);
+        await _db.SaveChangesAsync(ct);
+        return equipment;
+    }
+
+    public async Task UpdateAsync(Equipment equipment, CancellationToken ct = default)
+    {
+        _db.Equipment.Update(equipment);
+        await _db.SaveChangesAsync(ct);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EfRentalRepository
+// EfRentalRepository (adds GetAllRentalsAsync for reporting)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 public sealed class EfRentalRepository : IRentalRepository
@@ -81,7 +213,22 @@ public sealed class EfRentalRepository : IRentalRepository
         => await _db.Rentals
             .Where(r => r.Status == RentalStatus.Active || r.Status == RentalStatus.Pending)
             .Include(r => r.Customer)
+            .Include(r => r.RentalEquipments)
+                .ThenInclude(re => re.Equipment)
             .OrderBy(r => r.EndTime)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+    /// <summary>All rentals in a date range — used by reports and analytics.</summary>
+    public async Task<IReadOnlyList<Rental>> GetAllRentalsAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+        => await _db.Rentals
+            .Where(r => r.StartTime >= from && r.StartTime <= to)
+            .Include(r => r.Customer)
+            .Include(r => r.RentalEquipments)
+                .ThenInclude(re => re.Equipment)
+            .Include(r => r.Payments)
+            .OrderByDescending(r => r.StartTime)
             .AsNoTracking()
             .ToListAsync(ct);
 
@@ -90,6 +237,7 @@ public sealed class EfRentalRepository : IRentalRepository
         => await _db.Rentals
             .Where(r => r.CustomerProfileId == customerId)
             .Include(r => r.RentalEquipments)
+                .ThenInclude(re => re.Equipment)
             .OrderByDescending(r => r.StartTime)
             .AsNoTracking()
             .ToListAsync(ct);

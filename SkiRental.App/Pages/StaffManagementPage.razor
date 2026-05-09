@@ -1,0 +1,292 @@
+@page "/staff-management"
+@using SkiRental.App.Services
+@using SkiRental.Domain.Models
+@using SkiRental.Logic.Services
+@inject AuthenticationService Auth
+@inject UserService UserSvc
+@inject NavigationManager Nav
+
+<PageTitle>Zarządzanie Personelem | SkiRental</PageTitle>
+
+<div class="page-container">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / Zarządzanie Personelem
+    </nav>
+
+    @* ── Auth guard ── *@
+    @if (!Auth.IsOwner)
+    {
+        <div class="error-message">
+            🔒 Tylko Właściciel ma dostęp do tej sekcji.
+        </div>
+        return;
+    }
+
+    <div class="section-header">
+        <h2>👥 Zarządzanie Personelem</h2>
+        <button class="btn-primary" @onclick="ShowCreateForm">+ Dodaj pracownika</button>
+    </div>
+
+    @* ── Feedback banner ── *@
+    @if (_feedbackMsg is not null)
+    {
+        <div class="@(_feedbackIsError ? "error-message" : "success-message")">
+            @_feedbackMsg
+        </div>
+    }
+
+    @* ── Create worker form ── *@
+    @if (_showCreateForm)
+    {
+        <div class="card create-form">
+            <h3>Nowe konto pracownika</h3>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Nazwa użytkownika</label>
+                    <input type="text" @bind="_newUsername" class="form-input" placeholder="min. 3 znaki" />
+                </div>
+                <div class="form-group">
+                    <label>Hasło tymczasowe</label>
+                    <input type="text" @bind="_newPassword" class="form-input" placeholder="min. 8 znaków" />
+                </div>
+                <div class="form-group">
+                    <label>Rola</label>
+                    <select @bind="_newRole" class="form-input">
+                        <option value="@AppRole.Worker">Pracownik</option>
+                        <option value="@AppRole.Owner">Właściciel</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn-primary" @onclick="CreateWorker" disabled="@_working">
+                    @(_working ? "Tworzę..." : "Utwórz konto")
+                </button>
+                <button class="btn-secondary" @onclick="() => _showCreateForm = false">Anuluj</button>
+            </div>
+        </div>
+    }
+
+    @* ── User list ── *@
+    @if (_users is null)
+    {
+        <div class="loading-spinner"><div class="spinner"></div><p>Ładowanie...</p></div>
+    }
+    else
+    {
+        <div class="staff-table-wrapper">
+            <table class="staff-table">
+                <thead>
+                    <tr>
+                        <th>Użytkownik</th>
+                        <th>Rola</th>
+                        <th>Status</th>
+                        <th>Ostatnie logowanie</th>
+                        <th>Akcje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in _users)
+                    {
+                        <tr class="@(user.IsCurrentlyLocked ? "row-locked" : "")">
+                            <td>
+                                <strong>@user.Username</strong>
+                                @if (user.Id == Auth.CurrentUserId)
+                                {
+                                    <span class="badge-self">(Ty)</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="role-badge role-@user.AppRole.ToString().ToLower()">
+                                    @RoleLabel(user.AppRole)
+                                </span>
+                            </td>
+                            <td>
+                                @if (user.IsCurrentlyLocked)
+                                {
+                                    <span class="status-locked">🔒 Zablokowany</span>
+                                }
+                                else
+                                {
+                                    <span class="status-active">✅ Aktywny</span>
+                                }
+                            </td>
+                            <td>@(user.LastLoginAt?.ToString("dd.MM.yyyy HH:mm") ?? "Nigdy")</td>
+                            <td class="action-cell">
+                                @* Can't modify your own account via this panel *@
+                                @if (user.Id != Auth.CurrentUserId)
+                                {
+                                    @* Role toggle *@
+                                    @if (user.AppRole == AppRole.Worker)
+                                    {
+                                        <button class="btn-sm btn-outline"
+                                                @onclick="() => ChangeRole(user, AppRole.Owner)"
+                                                title="Promuj do Właściciela">⬆️ Właściciel</button>
+                                    }
+                                    else if (user.AppRole == AppRole.Owner)
+                                    {
+                                        <button class="btn-sm btn-outline"
+                                                @onclick="() => ChangeRole(user, AppRole.Worker)"
+                                                title="Degraduj do Pracownika">⬇️ Pracownik</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-sm btn-outline"
+                                                @onclick="() => ChangeRole(user, AppRole.Worker)"
+                                                title="Promuj do Pracownika">⬆️ Pracownik</button>
+                                    }
+
+                                    @* Lock / Unlock *@
+                                    @if (user.IsCurrentlyLocked)
+                                    {
+                                        <button class="btn-sm btn-success"
+                                                @onclick="() => ToggleLock(user, false)">🔓 Odblokuj</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-sm btn-danger"
+                                                @onclick="() => ToggleLock(user, true)">🔒 Blokuj</button>
+                                    }
+
+                                    @* Reset password *@
+                                    <button class="btn-sm btn-outline"
+                                            @onclick="() => PromptResetPassword(user)">🔑 Reset hasła</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* ── Password reset mini-form ── *@
+    @if (_resetPasswordUser is not null)
+    {
+        <div class="card create-form">
+            <h3>Reset hasła – @_resetPasswordUser.Username</h3>
+            <div class="form-group">
+                <label>Nowe hasło tymczasowe</label>
+                <input type="text" @bind="_resetNewPassword" class="form-input" placeholder="min. 8 znaków" />
+            </div>
+            <div class="form-actions">
+                <button class="btn-primary" @onclick="ConfirmResetPassword" disabled="@_working">
+                    @(_working ? "Zmieniam..." : "Zmień hasło")
+                </button>
+                <button class="btn-secondary" @onclick="() => _resetPasswordUser = null">Anuluj</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<AppUser>? _users;
+    private bool _showCreateForm;
+    private bool _working;
+    private string? _feedbackMsg;
+    private bool _feedbackIsError;
+
+    // Create form fields
+    private string _newUsername  = string.Empty;
+    private string _newPassword  = string.Empty;
+    private AppRole _newRole     = AppRole.Worker;
+
+    // Password reset
+    private AppUser? _resetPasswordUser;
+    private string _resetNewPassword = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Auth.IsOwner)
+            await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        _users = await UserSvc.GetAllUsersAsync();
+    }
+
+    private void ShowCreateForm()
+    {
+        _newUsername  = string.Empty;
+        _newPassword  = string.Empty;
+        _newRole      = AppRole.Worker;
+        _showCreateForm = true;
+    }
+
+    private async Task CreateWorker()
+    {
+        _working = true;
+        var result = await UserSvc.CreateUserAsync(_newUsername, _newPassword, _newRole);
+        await HandleResult(result.IsSuccess, result.IsSuccess
+            ? $"✅ Konto '{_newUsername}' zostało utworzone."
+            : result.ErrorMessage ?? "Błąd tworzenia konta.");
+
+        if (result.IsSuccess)
+        {
+            _showCreateForm = false;
+            await LoadUsers();
+        }
+        _working = false;
+    }
+
+    private async Task ChangeRole(AppUser user, AppRole newRole)
+    {
+        _working = true;
+        var result = await UserSvc.ChangeRoleAsync(user.Id, newRole);
+        await HandleResult(result.IsSuccess, result.IsSuccess
+            ? $"✅ Rola '{user.Username}' zmieniona na {RoleLabel(newRole)}."
+            : result.ErrorMessage ?? "Błąd zmiany roli.");
+        if (result.IsSuccess) await LoadUsers();
+        _working = false;
+    }
+
+    private async Task ToggleLock(AppUser user, bool locked)
+    {
+        _working = true;
+        var result = await UserSvc.SetLockAsync(user.Id, locked);
+        await HandleResult(result.IsSuccess, result.IsSuccess
+            ? (locked ? $"🔒 Konto '{user.Username}' zostało zablokowane."
+                      : $"🔓 Konto '{user.Username}' zostało odblokowane.")
+            : result.ErrorMessage ?? "Błąd zmiany statusu konta.");
+        if (result.IsSuccess) await LoadUsers();
+        _working = false;
+    }
+
+    private void PromptResetPassword(AppUser user)
+    {
+        _resetPasswordUser = user;
+        _resetNewPassword  = string.Empty;
+    }
+
+    private async Task ConfirmResetPassword()
+    {
+        if (_resetPasswordUser is null) return;
+        _working = true;
+        var result = await UserSvc.ChangePasswordAsync(_resetPasswordUser.Id, _resetNewPassword);
+        await HandleResult(result.IsSuccess, result.IsSuccess
+            ? $"✅ Hasło dla '{_resetPasswordUser.Username}' zostało zmienione."
+            : result.ErrorMessage ?? "Błąd zmiany hasła.");
+        if (result.IsSuccess) _resetPasswordUser = null;
+        _working = false;
+    }
+
+    private Task HandleResult(bool ok, string msg)
+    {
+        _feedbackMsg     = msg;
+        _feedbackIsError = !ok;
+        // Auto-clear after 5s
+        _ = Task.Delay(5000).ContinueWith(_ =>
+        {
+            _feedbackMsg = null;
+            InvokeAsync(StateHasChanged);
+        });
+        return Task.CompletedTask;
+    }
+
+    private static string RoleLabel(AppRole r) => r switch
+    {
+        AppRole.Owner  => "Właściciel",
+        AppRole.Worker => "Pracownik",
+        _              => "Klient"
+    };
+}

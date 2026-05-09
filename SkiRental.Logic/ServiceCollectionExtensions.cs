@@ -1,8 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-// NOTE: UseInMemoryDatabase() requires the NuGet package:
-//   Microsoft.EntityFrameworkCore.InMemory v9.0.x
-// The method lives in the Microsoft.EntityFrameworkCore namespace (no extra using needed).
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SkiRental.Logic.Interfaces;
 using SkiRental.Logic.Services;
@@ -10,24 +6,23 @@ using SkiRental.Logic.Services;
 namespace SkiRental.Logic;
 
 /// <summary>
-/// Extension metody do rejestracji serwisów warstwy logiki.
-/// Umożliwia współdzielenie konfiguracji DI między projektem MAUI
-/// a ewentualnym projektem ASP.NET Core back-office.
+/// Extension methods for registering all SkiRental domain and logic services.
+/// Shared between the MAUI app and any future ASP.NET Core back-office.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Rejestruje wszystkie serwisy domeny i logiki biznesowej.
+    /// Registers DbContext, repositories, and domain services.
     /// </summary>
-    /// <param name="services">Kolekcja serwisów DI.</param>
-    /// <param name="connectionString">Connection string do bazy danych.</param>
-    /// <param name="useInMemory">Użyj bazy in-memory (do testów).</param>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="connectionString">Database connection string. Pass null only when useInMemory is true.</param>
+    /// <param name="useInMemory">Use in-memory database (unit tests only).</param>
     public static IServiceCollection AddSkiRentalServices(
         this IServiceCollection services,
         string? connectionString = null,
         bool useInMemory = false)
     {
-        // ── EF Core DbContext ──────────────────────────────────────────────
+        // ── EF Core DbContext ──────────────────────────────────────────────────
         if (useInMemory)
         {
             services.AddDbContext<SkiRentalDbContext>(opts =>
@@ -35,7 +30,6 @@ public static class ServiceCollectionExtensions
         }
         else if (connectionString is not null)
         {
-            // Auto-detect: SQL Server vs SQLite
             services.AddDbContext<SkiRentalDbContext>(opts =>
             {
                 if (connectionString.Contains("Data Source=") ||
@@ -46,21 +40,22 @@ public static class ServiceCollectionExtensions
             });
         }
 
-        // ── Repository Layer ───────────────────────────────────────────────────
+        // ── Repositories ───────────────────────────────────────────────────────
+        services.AddScoped<IUserRepository,      EfUserRepository>();
         services.AddScoped<IEquipmentRepository, EfEquipmentRepository>();
-        services.AddScoped<IRentalRepository, EfRentalRepository>();
+        services.AddScoped<IRentalRepository,    EfRentalRepository>();
 
-        // ── Domain Services ────────────────────────────────────────────────
+        // ── Domain services ────────────────────────────────────────────────────
         services.AddScoped<EquipmentMathService>();
         services.AddScoped<BookingService>();
         services.AddScoped<AnalyticsService>();
+        services.AddScoped<UserService>();
 
         return services;
     }
 
     /// <summary>
-    /// Stosuje migracje bazy danych przy starcie aplikacji.
-    /// Wywoływane z MauiProgram lub Program.cs web.
+    /// Applies EF Core migrations. Call once at app startup (MAUI or web host).
     /// </summary>
     public static async Task ApplyMigrationsAsync(this IServiceProvider services)
     {

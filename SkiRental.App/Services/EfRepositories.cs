@@ -51,6 +51,19 @@ public sealed class EfEquipmentRepository : IEquipmentRepository
             .AsNoTracking()
             .ToListAsync(ct);
     }
+
+    public async Task<Equipment> CreateAsync(Equipment equipment, CancellationToken ct = default)
+    {
+        _db.Equipment.Add(equipment);
+        await _db.SaveChangesAsync(ct);
+        return equipment;
+    }
+
+    public async Task UpdateAsync(Equipment equipment, CancellationToken ct = default)
+    {
+        _db.Equipment.Update(equipment);
+        await _db.SaveChangesAsync(ct);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -83,6 +96,16 @@ public sealed class EfRentalRepository : IRentalRepository
             .Where(r => r.Status == RentalStatus.Active || r.Status == RentalStatus.Pending)
             .Include(r => r.Customer)
             .OrderBy(r => r.EndTime)
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<Rental>> GetAllRentalsAsync(DateTime from, DateTime to, CancellationToken ct = default)
+        => await _db.Rentals
+            .Where(r => r.StartTime >= from && r.StartTime <= to)
+            .Include(r => r.Customer)
+            .Include(r => r.RentalEquipments)
+                .ThenInclude(re => re.Equipment)
+            .OrderByDescending(r => r.StartTime)
             .AsNoTracking()
             .ToListAsync(ct);
 
