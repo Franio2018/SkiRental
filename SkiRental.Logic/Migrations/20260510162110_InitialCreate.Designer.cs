@@ -11,7 +11,7 @@ using SkiRental.Logic;
 namespace SkiRental.Logic.Migrations
 {
     [DbContext(typeof(SkiRentalDbContext))]
-    [Migration("20260421134500_InitialCreate")]
+    [Migration("20260510162110_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -19,6 +19,88 @@ namespace SkiRental.Logic.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
+
+            modelBuilder.Entity("SkiRental.Domain.Models.AppUser", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LockoutEnd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserProfileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserProfileId")
+                        .IsUnique();
+
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("AppUsers");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAt = new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            FailedLoginAttempts = 0,
+                            IsLocked = false,
+                            PasswordHash = "$2a$12$JYsSZdsvjG.TKqmgoBpIve9h01tQ9Jo35S1P/wkr30Ba5q/X94Xc6",
+                            Role = "Owner",
+                            Username = "owner"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedAt = new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            FailedLoginAttempts = 0,
+                            IsLocked = false,
+                            PasswordHash = "$2a$12$5N0AOyEPqcfjrnH5K3CuMu9wyYueUO/jv0KO1JYZ0AN/k.PV6bk/K",
+                            Role = "Worker",
+                            Username = "worker"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            CreatedAt = new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            FailedLoginAttempts = 0,
+                            IsLocked = false,
+                            PasswordHash = "$2a$12$0HULvmchAwUoYvENSIbWiOgNlGCxeoKtb50QaikDU7qe5ZKHbrfVG",
+                            Role = "Customer",
+                            Username = "user"
+                        });
+                });
 
             modelBuilder.Entity("SkiRental.Domain.Models.Equipment", b =>
                 {
@@ -264,7 +346,8 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("CustomerProfileId");
 
                     b.HasIndex("QrCode")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[QrCode] IS NOT NULL");
 
                     b.ToTable("Rentals");
                 });
@@ -296,11 +379,29 @@ namespace SkiRental.Logic.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DateOfBirth")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Email")
                         .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EmailNotificationsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FavoriteRoutes")
+                        .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("FirstName")
@@ -320,8 +421,16 @@ namespace SkiRental.Logic.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PreferenceNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PreferredStyle")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProfileImagePath")
+                        .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("ShoeSize")
@@ -330,6 +439,9 @@ namespace SkiRental.Logic.Migrations
                     b.Property<string>("SkillLevel")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("SmsNotificationsEnabled")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -342,6 +454,16 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("Email");
 
                     b.ToTable("UserProfiles");
+                });
+
+            modelBuilder.Entity("SkiRental.Domain.Models.AppUser", b =>
+                {
+                    b.HasOne("SkiRental.Domain.Models.UserProfile", "Profile")
+                        .WithOne()
+                        .HasForeignKey("SkiRental.Domain.Models.AppUser", "UserProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Profile");
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.Payment", b =>

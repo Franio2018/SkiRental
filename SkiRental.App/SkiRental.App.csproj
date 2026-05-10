@@ -23,15 +23,18 @@
 
 		<AssetTargetFallback>$(AssetTargetFallback);net9.0</AssetTargetFallback>
 
-				<DisableBuildCompression>true</DisableBuildCompression>
-
-		<OutputType>Exe</OutputType>
+		<DisableBuildCompression>true</DisableBuildCompression>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<MauiImage Include="Resources\Images\*" />
 		<MauiFont Include="Resources\Fonts\*" />
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<!-- appsettings.json must be an embedded resource so MAUI can read it at runtime -->
+	<ItemGroup>
+		<EmbeddedResource Include="appsettings.json" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -43,6 +46,10 @@
 		<PackageReference Include="ZXing.Net.Maui.Controls" Version="0.4.0" />
 		<PackageReference Include="Plugin.NFC" Version="0.1.22" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
 		<PackageReference Include="OpenWeatherMap.Standard" Version="3.0.0" />

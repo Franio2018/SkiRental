@@ -65,7 +65,8 @@ public sealed class AuthenticationService : IAuthenticationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Database error during login for {Username}", username);
-            return new LoginResult(false, "Błąd bazy danych. Spróbuj ponownie.");
+            // For debugging, show actual error message
+            return new LoginResult(false, $"Błąd bazy danych: {ex.Message}");
         }
 
         if (user is null)
