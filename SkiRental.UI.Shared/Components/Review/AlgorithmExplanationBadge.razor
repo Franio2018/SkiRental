@@ -1,0 +1,45 @@
+@using SkiRental.Domain.Models
+
+<div class="algorithm-explanation-badge">
+    <div class="badge-header" @onclick="ToggleExpanded">
+        <span class="badge-icon">💡</span>
+        <span class="badge-title">Why this item?</span>
+        <button class="expand-toggle">
+            @(IsExpanded ? "▼" : "▶")
+        </button>
+    </div>
+    
+    @if (IsExpanded)
+    {
+        <div class="explanation-content">
+            <div class="explanation-text">
+                @Explanation
+            </div>
+            
+            @if (!string.IsNullOrEmpty(Tip))
+            {
+                <div class="pro-tip">
+                    <span class="tip-icon">💡</span>
+                    <div class="tip-content">
+                        <strong>Pro Tip:</strong> @Tip
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string Explanation { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Tip { get; set; }
+
+    private bool IsExpanded { get; set; }
+
+    private void ToggleExpanded()
+    {
+        IsExpanded = !IsExpanded;
+    }
+}

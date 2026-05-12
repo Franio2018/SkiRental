@@ -1,0 +1,209 @@
+@using SkiRental.Domain.Enums
+@using SkiRental.Domain.Models
+@using Microsoft.AspNetCore.Components
+
+<div class="online-payment-panel">
+    <div class="payment-tabs">
+        <button class="tab-btn @(Mode == PaymentMethod.Spot ? "active" : "")"
+                @onclick="() => SetMode(PaymentMethod.Spot)">
+            <span class="tab-icon">💳</span>
+            Card Payment
+        </button>
+        <button class="tab-btn @(Mode == PaymentMethod.Online ? "active" : "")"
+                @onclick="() => SetMode(PaymentMethod.Online)">
+            <span class="tab-icon">📱</span>
+            BLIK
+        </button>
+    </div>
+
+    @if (Mode == PaymentMethod.Spot)
+    {
+        <div class="card-form">
+            <div class="form-group">
+                <label for="card-number">Card Number</label>
+                <input type="text" 
+                       id="card-number"
+                       @bind="CardNumber" 
+                       placeholder="1234 5678 9012 3456" 
+                       maxlength="19"
+                       class="form-input" />
+                <div class="input-hint">Enter your 16-digit card number</div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="card-expiry">Expiry Date</label>
+                    <input type="text" 
+                           id="card-expiry"
+                           @bind="CardExpiry" 
+                           placeholder="MM/YY" 
+                           maxlength="5"
+                           class="form-input" />
+                    <div class="input-hint">MM/YY format</div>
+                </div>
+                <div class="form-group">
+                    <label for="card-cvv">CVV</label>
+                    <input type="text" 
+                           id="card-cvv"
+                           @bind="CardCvv" 
+                           placeholder="123" 
+                           maxlength="3"
+                           class="form-input" />
+                    <div class="input-hint">3-digit security code</div>
+                </div>
+            </div>
+
+            <div class="card-visual">
+                <div class="card-chip"></div>
+                <div class="card-number-display">@FormatCardNumber(CardNumber)</div>
+                <div class="card-expiry-display">@CardExpiry</div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="blik-form">
+            <div class="form-group">
+                <label for="blik-code">BLIK Code</label>
+                <input type="text" 
+                       id="blik-code"
+                       @bind="BlikCode" 
+                       placeholder="000000" 
+                       maxlength="6"
+                       class="blik-input" />
+                <div class="input-hint">Enter 6-digit code from your banking app</div>
+            </div>
+
+            <div class="blik-steps">
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <span>Open your banking app</span>
+                </div>
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <span>Choose BLIK payment</span>
+                </div>
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <span>Enter 6-digit code</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="error-message">
+            <span class="error-icon">❌</span>
+            @ErrorMessage
+        </div>
+    }
+
+    <div class="payment-actions">
+        <button class="btn-secondary" @onclick="OnCancel">
+            Cancel
+        </button>
+        <button class="btn-primary pay-btn" 
+                @onclick="SubmitPayment" 
+                disabled="@(!IsValid || IsProcessing)">
+            @GetPayButtonText()
+        </button>
+    </div>
+
+    @if (IsProcessing)
+    {
+        <div class="processing-overlay">
+            <div class="spinner"></div>
+            <p>@GetProcessingText()</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public PaymentMethod Mode { get; set; } = PaymentMethod.Spot;
+
+    [Parameter]
+    public decimal Amount { get; set; }
+
+    [Parameter]
+    public string CardNumber { get; set; } = string.Empty;
+
+    [Parameter]
+    public string CardExpiry { get; set; } = string.Empty;
+
+    [Parameter]
+    public string CardCvv { get; set; } = string.Empty;
+
+    [Parameter]
+    public string BlikCode { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool IsProcessing { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback<PaymentMethod> OnPaymentSubmitted { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private bool IsValid => Mode switch
+    {
+        PaymentMethod.Spot => IsValidCard(),
+        PaymentMethod.Online => IsValidBlik(),
+        _ => false
+    };
+
+    private bool IsValidCard() =>
+        CardNumber.Replace(" ", "").Length == 16 &&
+        CardExpiry.Length == 5 &&
+        CardCvv.Length == 3;
+
+    private bool IsValidBlik() => BlikCode.Length == 6;
+
+    private void SetMode(PaymentMethod mode)
+    {
+        Mode = mode;
+        ErrorMessage = null;
+    }
+
+    private async Task SubmitPayment()
+    {
+        if (!IsValid) return;
+
+        await OnPaymentSubmitted.InvokeAsync(Mode);
+    }
+
+    private string GetPayButtonText()
+    {
+        if (IsProcessing) return "Processing...";
+        
+        return Mode switch
+        {
+            PaymentMethod.Spot => $"Pay {Amount:F2} PLN",
+            PaymentMethod.Online => $"Pay {Amount:F2} PLN with BLIK",
+            _ => "Pay"
+        };
+    }
+
+    private string GetProcessingText() => Mode switch
+    {
+        PaymentMethod.Spot => "Processing card payment...",
+        PaymentMethod.Online => "Processing BLIK payment...",
+        _ => "Processing payment..."
+    };
+
+    private static string FormatCardNumber(string number)
+    {
+        if (string.IsNullOrEmpty(number)) return "•••• •••• •••• ••••";
+        
+        var clean = number.Replace(" ", "");
+        if (clean.Length < 4) return "•••• •••• •••• ••••";
+        
+        var last4 = clean[^4..];
+        return $"•••• •••• {last4}";
+    }
+}

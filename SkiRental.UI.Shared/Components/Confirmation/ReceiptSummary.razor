@@ -1,0 +1,151 @@
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Services
+
+<div class="receipt-summary" id="receipt-print">
+    <div class="receipt-header">
+        <div class="company-info">
+            <h2>SkiRental</h2>
+            <p>123 Ski Street, Zakopane</p>
+            <p>+48 123 456 789</p>
+        </div>
+        
+        <div class="receipt-meta">
+            <h3>Receipt</h3>
+            <p>Booking #@Result.RentalId</p>
+            <p>@StartTime:dd.MM.yyyy HH:mm</p>
+        </div>
+    </div>
+
+    <div class="receipt-customer">
+        <h4>Customer Information</h4>
+        <div class="customer-details">
+            <p><strong>Name:</strong> Customer Name</p>
+            <p><strong>Phone:</strong> +48 XXX XXX XXX</p>
+            <p><strong>Email:</strong> customer@email.com</p>
+        </div>
+    </div>
+
+    <div class="receipt-equipment">
+        <h4>Equipment Details</h4>
+        <div class="equipment-list">
+            @foreach (var equipment in AssignedItems)
+            {
+                <div class="equipment-item">
+                    <div class="item-info">
+                        <span class="item-name">@equipment.Brand @equipment.Model</span>
+                        <span class="item-specs">@equipment.Size cm • @equipment.Category</span>
+                    </div>
+                    <div class="item-pricing">
+                        <span class="daily-rate">@equipment.DailyRate PLN/day</span>
+                        <span class="total-rate">@CalculateItemTotal(equipment) PLN</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="receipt-period">
+        <h4>Rental Period</h4>
+        <div class="period-details">
+            <div class="period-row">
+                <span>Start:</span>
+                <strong>@StartTime:dd.MM.yyyy HH:mm</strong>
+            </div>
+            <div class="period-row">
+                <span>End:</span>
+                <strong>@EndTime:dd.MM.yyyy HH:mm</strong>
+            </div>
+            <div class="period-row">
+                <span>Duration:</span>
+                <strong>@GetDurationText()</strong>
+            </div>
+        </div>
+    </div>
+
+    <div class="receipt-totals">
+        <div class="total-row">
+            <span>Subtotal:</span>
+            <span>@AssignedItems.Sum(e => e.DailyRate * GetDays()) PLN</span>
+        </div>
+        <div class="total-row">
+            <span>Service Fee:</span>
+            <span>0.00 PLN</span>
+        </div>
+        <div class="total-row grand-total">
+            <strong>Total Amount:</strong>
+            <strong>@AssignedItems.Sum(e => e.DailyRate * GetDays()) PLN</strong>
+        </div>
+    </div>
+
+    <div class="receipt-payment">
+        <h4>Payment Information</h4>
+        <div class="payment-details">
+            <div class="payment-row">
+                <span>Payment Method:</span>
+                <strong>Pay on Spot</strong>
+            </div>
+            <div class="payment-row">
+                <span>Payment Status:</span>
+                <strong>Pending</strong>
+            </div>
+            <div class="payment-row">
+                <span>QR Code:</span>
+                <strong>@Result.QrCode</strong>
+            </div>
+        </div>
+    </div>
+
+    <div class="receipt-footer">
+        <div class="footer-info">
+            <p><strong>Thank you for choosing SkiRental!</strong></p>
+            <p>For questions or support, contact us at:</p>
+            <p>📞 +48 123 456 789</p>
+            <p>📧 rental@skirental.app</p>
+            <p>🌐 www.skirental.app</p>
+        </div>
+        
+        <div class="legal-info">
+            <p class="small-text">All rentals are subject to our terms and conditions.</p>
+            <p class="small-text">Equipment must be returned in the same condition as received.</p>
+            <p class="small-text">Late returns may incur additional charges.</p>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public BookingResult Result { get; set; } = null!;
+
+    [Parameter]
+    public List<Equipment> AssignedItems { get; set; } = new();
+
+    [Parameter]
+    public DateTime StartTime { get; set; }
+
+    [Parameter]
+    public DateTime EndTime { get; set; }
+
+    private decimal CalculateItemTotal(Equipment equipment)
+    {
+        return equipment.DailyRate * GetDays();
+    }
+
+    private int GetDays()
+    {
+        var duration = EndTime - StartTime;
+        return Math.Max(1, (int)Math.Ceiling(duration.TotalDays));
+    }
+
+    private string GetDurationText()
+    {
+        var duration = EndTime - StartTime;
+        var days = duration.Days;
+        var hours = duration.Hours;
+        
+        if (days > 0)
+            return $"{days} day{(days != 1 ? "s" : "")} {hours} hour{(hours != 1 ? "s" : "")}";
+        
+        return $"{hours} hour{(hours != 1 ? "s" : "")}";
+    }
+}

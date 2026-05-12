@@ -1,0 +1,203 @@
+@page "/no-match"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using Microsoft.AspNetCore.Components
+
+@inject NavigationManager Navigation
+
+<PageTitle>No Gear Available - SkiRental</PageTitle>
+
+<div class="no-match-page">
+    <div class="no-match-container">
+        <div class="error-header">
+            <div class="error-icon">⚠️</div>
+            <h1>No Safe Match Available</h1>
+            <p class="subtitle">We couldn't find equipment that fits your safety requirements</p>
+        </div>
+
+        @if (_noMatchReasons.Any())
+        {
+            <div class="reasons-section">
+                <h2>What's unavailable:</h2>
+                <div class="reason-cards">
+                    @foreach (var reason in _noMatchReasons)
+                    {
+                        <div class="reason-card">
+                            <div class="reason-header">
+                                <span class="category-icon">@GetCategoryIcon(reason.Category)</span>
+                                <h3>@reason.Category</h3>
+                            </div>
+                            <div class="reason-details">
+                                <p class="constraint">@reason.ConstraintDescription</p>
+                                <div class="size-comparison">
+                                    <div class="ideal-size">
+                                        <strong>Your ideal:</strong> @reason.IdealSize@(GetUnit(reason.Category))
+                                    </div>
+                                    <div class="available-range">
+                                        <strong>Available:</strong> @reason.AvailableSizes
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(reason.FitNotes))
+                                {
+                                    <div class="fit-notes">
+                                        <strong>Fit notes:</strong> @reason.FitNotes
+                                    </div>
+                                }
+                                @if (reason.AvailablePositions.Any())
+                                {
+                                    <div class="position-options">
+                                        <strong>Positions available:</strong>
+                                        <ul>
+                                            @foreach (var position in reason.AvailablePositions)
+                                            {
+                                                <li>@position</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                                @if (reason.RecommendedSizes.Any())
+                                {
+                                    <div class="recommended-sizes">
+                                        <strong>Recommended sizes:</strong>
+                                        <ul>
+                                            @foreach (var size in reason.RecommendedSizes)
+                                            {
+                                                <li>@size</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="help-section">
+            <h2>What you can do:</h2>
+            <div class="help-options">
+                <div class="help-option">
+                    <div class="option-icon">📞</div>
+                    <div>
+                        <h3>Contact the rental desk</h3>
+                        <p>Our staff may have additional options or can suggest alternatives</p>
+                    </div>
+                </div>
+                <div class="help-option">
+                    <div class="option-icon">🔄</div>
+                    <div>
+                        <h3>Adjust your profile</h3>
+                        <p>Try different measurements or skill level settings</p>
+                    </div>
+                </div>
+                <div class="help-option">
+                    <div class="option-icon">📅</div>
+                    <div>
+                        <h3>Check back later</h3>
+                        <p>Equipment becomes available as other rentals return</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-section">
+            <div class="contact-info">
+                <h3>Rental Desk Contact</h3>
+                <p><strong>Phone:</strong> +48 123 456 789</p>
+                <p><strong>Email:</strong> rental@skirental.app</p>
+                <p><strong>Hours:</strong> 8:00 - 18:00 daily</p>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn-secondary" @onclick="GoBack">
+                    ← Back to Profile
+                </button>
+                <button class="btn-primary" @onclick="GoHome">
+                    🏠 Start Over
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<NoMatchReason> _noMatchReasons = new();
+    private EquipmentSelectionParameters? _parameters;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNoMatchDataFromQuery();
+    }
+
+    private async Task LoadNoMatchDataFromQuery()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var dataParam = query["data"];
+
+        if (string.IsNullOrEmpty(dataParam))
+        {
+            Navigation.NavigateTo("/booking");
+            return;
+        }
+
+        try
+        {
+            _parameters = System.Text.Json.JsonSerializer.Deserialize<EquipmentSelectionParameters>(dataParam);
+            
+            // Generate mock no-match reasons for demo
+            // In real implementation, these would come from RecommendationResult
+            if (_parameters != null)
+            {
+                _noMatchReasons = new List<NoMatchReason>
+                {
+                    new NoMatchReason
+                    {
+                        Category = EquipmentCategory.Skis,
+                        ConstraintDescription = $"No skis in {_parameters.Height - 10:F0}–{_parameters.Height + 10:F0}cm range available",
+                        IdealSize = _parameters.Height + 25, // Classic ski calculation
+                        MinAvailable = 160,
+                        MaxAvailable = 175,
+                        AvailableSizes = "160cm, 165cm, 170cm, 175cm",
+                        AvailablePositions = new List<GearPosition> { GearPosition.Center, GearPosition.Forward },
+                        RecommendedSizes = new List<string> { "165cm", "170cm" },
+                        FitNotes = "Center mount recommended for your height and classic style"
+                    }
+                };
+            }
+        }
+        catch
+        {
+            Navigation.NavigateTo("/booking");
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/booking");
+    }
+
+    private void GoHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private static string GetCategoryIcon(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "🎿",
+        EquipmentCategory.Poles => "🏂",
+        EquipmentCategory.Boots => "🥾",
+        EquipmentCategory.Gloves => "🧤",
+        EquipmentCategory.Helmet => "⛑️",
+        _ => "📦"
+    };
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+}

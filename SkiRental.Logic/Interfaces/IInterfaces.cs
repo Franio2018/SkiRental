@@ -1,4 +1,5 @@
 using SkiRental.Domain.Models;
+using SkiRental.Domain.Enums;
 
 namespace SkiRental.Logic.Interfaces;
 
@@ -144,4 +145,63 @@ public interface IAuthenticationService
     string? CurrentJwtToken { get; }
     
     event Action? AuthenticationChanged;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IRecommendationOrchestrator – enhanced recommendation service
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Enhanced recommendation service that builds on EquipmentMathService.
+/// Handles per-category selection, fallback logic, and no-match detection.
+/// </summary>
+public interface IRecommendationOrchestrator
+{
+    Task<RecommendationResult> RecommendAsync(EquipmentSelectionParameters parameters, CancellationToken ct = default);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IGearSwapService – customer-facing gear swap alternatives
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Service for providing customer-facing gear swap options.
+/// Returns scored and filtered alternatives within safety tolerance.
+/// </summary>
+public interface IGearSwapService
+{
+    Task<List<SwapOption>> GetSwapOptionsAsync(
+        EquipmentCategory category,
+        EquipmentSelectionParameters parameters,
+        int excludeEquipmentId,
+        CancellationToken ct = default);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INotificationService – customer notifications (worker overrides, etc.)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Notification service for sending customer alerts (email/SMS).
+/// Used for worker override notifications and other customer communications.
+/// </summary>
+public interface INotificationService
+{
+    Task SendEmailAsync(string to, NotificationPayload payload, CancellationToken ct = default);
+    Task SendSmsAsync(string phone, NotificationPayload payload, CancellationToken ct = default);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NotificationPayload DTO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Payload for customer notifications.
+/// </summary>
+public record NotificationPayload
+{
+    public string Subject { get; init; } = string.Empty;
+    public string Body { get; init; } = string.Empty;
+    public string? SmsShortMessage { get; init; }
+    public Dictionary<string, string> TemplateData { get; init; } = new();
 }

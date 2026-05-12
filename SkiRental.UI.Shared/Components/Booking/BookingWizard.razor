@@ -4,17 +4,14 @@
 @using SkiRental.Logic.Services
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
+@implements IDisposable
 
 @inject EquipmentMathService EquipmentMath
 @inject BookingService BookingService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <div class="booking-wizard">
-
-    @* ── Hidden Fields for State Management ─────────────────────────────────── *@
-    <input type="hidden" id="selected-style" value="@((int)SelectedStyle)" />
-    <input type="hidden" id="selected-skill" value="@((int)SelectedSkill)" />
-    <input type="hidden" id="current-step" value="@CurrentStep" />
 
     @* ── Custom Popup Modal (JavaScript-based) ─────────────────────────────── *@
     <div id="custom-popup" class="popup-overlay" style="display: none;" onclick="hidePopup();">
@@ -88,7 +85,7 @@
                     <button class="style-card @(SelectedStyle == SkiStyle.Classic ? "selected" : "")"
                             id="style-classic"
                             type="button"
-                            onclick="selectStyle('classic', 'Wybrano styl: Klasyczny 🎿');">
+                            onclick="wizardBridge.setStyle(0)">
                         <div class="style-icon" style="pointer-events:none">🎿</div>
                         <h4 style="pointer-events:none">Klasyczny</h4>
                         <p style="pointer-events:none">Narty w śladach, rytmiczny krok. Idealny dla spokojnych tras.</p>
@@ -97,7 +94,7 @@
                     <button class="style-card @(SelectedStyle == SkiStyle.Skate ? "selected" : "")"
                             id="style-skate"
                             type="button"
-                            onclick="selectStyle('skate', 'Wybrano styl: Łyżwowy (Skate) ⛷️');">
+                            onclick="wizardBridge.setStyle(1)">
                         <div class="style-icon" style="pointer-events:none">⛷️</div>
                         <h4 style="pointer-events:none">Łyżwowy (Skate)</h4>
                         <p style="pointer-events:none">Dynamiczny ślizg na twardym śniegu. Wyższe wymagania techniczne.</p>
@@ -112,25 +109,19 @@
                     {
                         var lvl = level;
                         <button class="skill-pill @(SelectedSkill == lvl ? "active" : "")"
-                                id="skill-@((int)lvl)"
                                 type="button"
-                                onclick="@($"selectSkill({(int)lvl}, 'Wybrano poziom: {SkillLabels[lvl]}');")">
+                                onclick="@($"wizardBridge.setSkill({(int)lvl})")">
                             @SkillLabels[lvl]
                         </button>
                     }
                 </div>
             </div>
 
-            @* Debugging HUD *@
-            <div class="debug-panel" style="background:#f8f9fa; border:1px solid #ddd; padding:1rem; margin:1rem 0; border-radius:8px; font-family:monospace; font-size:11px;">
-                <strong>DEBUG:</strong> Valid: @IsStep1Valid | H:@ProfileHeight W:@ProfileWeight S:@ShoeSize | Style:@SelectedStyle
-            </div>
-
             <button class="btn-primary"
                     type="button"
-                    onclick="goToStep2();"
+                    onclick="wizardBridge.goToStep2()"
                     disabled="@(!IsStep1Valid)">
-                Dalej – Oblicz rekomendację →
+                Dalej oblicz rekomendacje →
             </button>
         </div>
     }
@@ -299,6 +290,38 @@
 </div>
 
 @code {
+    // ── JS Interop bridge (MAUI WebView @onclick workaround) ─────────────────
+    private DotNetObjectReference<BookingWizard>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("wizardBridgeInit", _dotNetRef);
+        }
+    }
+
+    public void Dispose() => _dotNetRef?.Dispose();
+
+    [JSInvokable]
+    public async Task JsSetStyle(int val)
+    {
+        SelectedStyle = (SkiStyle)val;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task JsSetSkill(int val)
+    {
+        SelectedSkill = (SkillLevel)val;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task JsGoToStep2() => InvokeAsync(GoToStep2Async);
+
+    // ────────────────────────────────────────────────────────────────────────
     private int CurrentStep = 1;
     private readonly string[] StepLabels = new[] { "Profil", "Sprzęt", "Płatność" };
 
@@ -355,29 +378,31 @@
         StateHasChanged();
     }
 
-    private async Task GoToStep2()
+    private async Task GoToStep2Async()
     {
+        if (!IsStep1Valid) return;
+
         CurrentStep = 2;
         _isCalculating = true;
+        _recommendation = null;
         StateHasChanged();
-
-        var parameters = new EquipmentSelectionParameters
-        {
-            Height = ProfileHeight,
-            Weight = ProfileWeight,
-            ShoeSize = ShoeSize,
-            Style = SelectedStyle,
-            SkillLevel = SelectedSkill
-        };
 
         try
         {
+            var parameters = new EquipmentSelectionParameters
+            {
+                Height = ProfileHeight,
+                Weight = ProfileWeight,
+                ShoeSize = ShoeSize,
+                Style = SelectedStyle,
+                SkillLevel = SelectedSkill
+            };
+
             _recommendation = await EquipmentMath.RecommendAsync(parameters);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _bookingError = $"Błąd: {ex.Message}";
-            CurrentStep = 1;
+            // Recommendation stays null; step 2 will show the empty state
         }
         finally
         {
@@ -423,8 +448,25 @@
     }
 }
 
-@* JavaScript Functions for Popup Control and State Management *@
+@* JavaScript bridge: native onclick → .NET via DotNetObjectReference *@
 <script>
+    // Called once after first render with the .NET component reference
+    window.wizardBridgeInit = function(dotNetRef) {
+        window.wizardBridge = {
+            _ref: dotNetRef,
+            setStyle: function(val) { this._ref.invokeMethodAsync('JsSetStyle', val); },
+            setSkill: function(val) { this._ref.invokeMethodAsync('JsSetSkill', val); },
+            goToStep2: function() { this._ref.invokeMethodAsync('JsGoToStep2'); }
+        };
+    };
+
+    // Initialise a no-op stub so clicks before init don't throw
+    window.wizardBridge = {
+        setStyle: function() {},
+        setSkill: function() {},
+        goToStep2: function() {}
+    };
+
     function showPopup(title, message) {
         document.getElementById('popup-title').innerText = title;
         document.getElementById('popup-message').innerText = message;
@@ -433,113 +475,5 @@
 
     function hidePopup() {
         document.getElementById('custom-popup').style.display = 'none';
-    }
-
-    function selectStyle(style, message) {
-        // Remove selected class from all style cards
-        document.querySelectorAll('.style-card').forEach(card => {
-            card.classList.remove('selected');
-        });
-        
-        // Add selected class to clicked style card
-        const styleElement = document.getElementById('style-' + style);
-        if (styleElement) {
-            styleElement.classList.add('selected');
-        }
-        
-        // Update hidden field
-        const styleValue = style === 'classic' ? 0 : 1;
-        document.getElementById('selected-style').value = styleValue;
-        
-        // Update debug panel
-        updateDebugPanel();
-        
-        // Show popup
-        showPopup('Styl jazdy', message);
-    }
-
-    function selectSkill(skillLevel, message) {
-        // Remove active class from all skill pills
-        document.querySelectorAll('.skill-pill').forEach(pill => {
-            pill.classList.remove('active');
-        });
-        
-        // Add active class to clicked skill pill
-        const skillElement = document.getElementById('skill-' + skillLevel);
-        if (skillElement) {
-            skillElement.classList.add('active');
-        }
-        
-        // Update hidden field
-        document.getElementById('selected-skill').value = skillLevel;
-        
-        // Update debug panel
-        updateDebugPanel();
-        
-        // Show popup
-        showPopup('Poziom zaawansowania', message);
-    }
-
-    function updateDebugPanel() {
-        const styleValue = document.getElementById('selected-style').value;
-        const skillValue = document.getElementById('selected-skill').value;
-        
-        const styleText = styleValue === '0' ? 'Classic' : 'Skate';
-        const skillText = skillValue === '0' ? 'Beginner' : 
-                         skillValue === '1' ? 'Intermediate' : 
-                         skillValue === '2' ? 'Advanced' : 'Expert';
-        
-        // Try to update debug panel if it exists
-        const debugPanel = document.querySelector('.debug-panel');
-        if (debugPanel) {
-            const currentText = debugPanel.innerHTML;
-            const styleMatch = currentText.match(/Style:\w+/);
-            const skillMatch = currentText.match(/Skill:\w+/);
-            
-            if (styleMatch) {
-                debugPanel.innerHTML = currentText.replace(styleMatch[0], 'Style:' + styleText);
-            }
-            if (skillMatch) {
-                debugPanel.innerHTML = currentText.replace(skillMatch[0], 'Skill:' + skillText);
-            }
-        }
-    }
-
-    function goToStep2() {
-        // Show popup first
-        showPopup('Przejście do kroku 2', 'Przechodzisz do kroku 2: Rekomendacja sprzętu');
-        
-        // Update hidden field for current step
-        const currentStepInput = document.getElementById('current-step');
-        if (currentStepInput) {
-            currentStepInput.value = '2';
-        }
-        
-        // Hide step 1 and show step 2
-        const step1 = document.querySelector('.step-profile');
-        const step2 = document.querySelector('.step-recommendation');
-        
-        if (step1) step1.style.display = 'none';
-        if (step2) step2.style.display = 'block';
-        
-        // Update progress indicator
-        updateProgressIndicator(2);
-    }
-
-    function updateProgressIndicator(step) {
-        // Update step circles and labels
-        const steps = document.querySelectorAll('.step');
-        steps.forEach((stepElement, index) => {
-            const stepNumber = index + 1;
-            if (stepNumber < step) {
-                stepElement.classList.add('done');
-                stepElement.classList.remove('active');
-            } else if (stepNumber === step) {
-                stepElement.classList.add('active');
-                stepElement.classList.remove('done');
-            } else {
-                stepElement.classList.remove('active', 'done');
-            }
-        });
     }
 </script>

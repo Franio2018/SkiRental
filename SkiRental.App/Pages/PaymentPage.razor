@@ -1,0 +1,315 @@
+@page "/payment"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Interfaces
+@using SkiRental.Logic.Services
+@using Microsoft.AspNetCore.Components
+
+@inject BookingService BookingService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Payment - SkiRental</PageTitle>
+
+<div class="payment-page">
+    @if (_gearSelection == null)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading payment details...</p>
+        </div>
+    }
+    else
+    {
+        <div class="payment-container">
+            <div class="order-summary">
+                <h2>Order Summary</h2>
+                <div class="summary-items">
+                    @foreach (var kvp in _gearSelection.EquipmentIds)
+                    {
+                        var category = kvp.Key;
+                        var equipmentId = kvp.Value;
+                        var equipment = _gearSelection.Recommendation.Selection.GetValueOrDefault(category);
+                        
+                        if (equipment != null)
+                        {
+                            <div class="summary-item">
+                                <div class="item-info">
+                                    <span class="item-name">@equipment.Brand @equipment.Model</span>
+                                    <span class="item-details">@equipment.Size@(GetUnit(category)) • @category</span>
+                                </div>
+                                <span class="item-price">@equipment.DailyRate PLN/day</span>
+                            </div>
+                        }
+                    }
+                </div>
+                
+                <div class="rental-period">
+                    <div class="period-row">
+                        <span>From:</span>
+                        <span>@_gearSelection.StartTime:dd.MM.yyyy HH:mm</span>
+                    </div>
+                    <div class="period-row">
+                        <span>To:</span>
+                        <span>@_gearSelection.EndTime:dd.MM.yyyy HH:mm</span>
+                    </div>
+                    <div class="period-row">
+                        <span>Duration:</span>
+                        <span>@GetDurationText()</span>
+                    </div>
+                </div>
+
+                <div class="total-section">
+                    <div class="total-row">
+                        <strong>Total Amount:</strong>
+                        <strong class="total-amount">@_gearSelection.TotalAmount PLN</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="payment-methods">
+                <h2>Choose Payment Method</h2>
+                
+                <div class="method-cards">
+                    <div class="method-card @(_selectedMethod == PaymentMethod.Spot ? "selected" : "")"
+                         @onclick="() => SelectPaymentMethod(PaymentMethod.Spot)">
+                        <div class="method-header">
+                            <div class="method-icon">💵</div>
+                            <h3>Pay on the Spot</h3>
+                        </div>
+                        <p>Pay cash or card when you pick up your equipment</p>
+                        <div class="method-features">
+                            <span class="feature">✓ No online payment</span>
+                            <span class="feature">✓ Pay at pickup</span>
+                        </div>
+                    </div>
+
+                    <div class="method-card @(_selectedMethod == PaymentMethod.Online ? "selected" : "")"
+                         @onclick="() => SelectPaymentMethod(PaymentMethod.Online)">
+                        <div class="method-header">
+                            <div class="method-icon">💳</div>
+                            <h3>Pay Online (PayU)</h3>
+                        </div>
+                        <p>Secure online payment with card or BLIK</p>
+                        <div class="method-features">
+                            <span class="feature">✓ Instant confirmation</span>
+                            <span class="feature">✓ Secure payment</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_selectedMethod == PaymentMethod.Online)
+                {
+                    <div class="online-payment-form">
+                        <div class="payment-tabs">
+                            <button class="tab-btn @(_paymentMode == PaymentMode.Card ? "active" : "")"
+                                    @onclick="() => _paymentMode = PaymentMode.Card">
+                                Card Payment
+                            </button>
+                            <button class="tab-btn @(_paymentMode == PaymentMode.Blik ? "active" : "")"
+                                    @onclick="() => _paymentMode = PaymentMode.Blik">
+                                BLIK
+                            </button>
+                        </div>
+
+                        @if (_paymentMode == PaymentMode.Card)
+                        {
+                            <div class="card-form">
+                                <div class="form-group">
+                                    <label>Card Number</label>
+                                    <input type="text" @bind="_cardNumber" placeholder="1234 5678 9012 3456" maxlength="19" />
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Expiry Date</label>
+                                        <input type="text" @bind="_cardExpiry" placeholder="MM/YY" maxlength="5" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>CVV</label>
+                                        <input type="text" @bind="_cardCvv" placeholder="123" maxlength="3" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="blik-form">
+                                <div class="form-group">
+                                    <label>BLIK Code</label>
+                                    <input type="text" @bind="_blikCode" placeholder="6-digit code" maxlength="6" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (_paymentError != null)
+            {
+                <div class="error-message">
+                    <span class="error-icon">❌</span>
+                    @_paymentError
+                </div>
+            }
+
+            <div class="payment-actions">
+                <button class="btn-secondary" @onclick="GoBack">
+                    ← Back to Gear Review
+                </button>
+                <button class="btn-primary pay-btn" 
+                        @onclick="ProcessPayment" 
+                        disabled="@(!CanPay || _isProcessing)">
+                    @GetPayButtonText()
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private GearSelection? _gearSelection;
+    private PaymentMethod? _selectedMethod;
+    private PaymentMode _paymentMode = PaymentMode.Card;
+    private string _cardNumber = string.Empty;
+    private string _cardExpiry = string.Empty;
+    private string _cardCvv = string.Empty;
+    private string _blikCode = string.Empty;
+    private bool _isProcessing;
+    private string? _paymentError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadGearSelectionFromQuery();
+    }
+
+    private async Task LoadGearSelectionFromQuery()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var dataParam = query["data"];
+
+        if (string.IsNullOrEmpty(dataParam))
+        {
+            Navigation.NavigateTo("/booking");
+            return;
+        }
+
+        try
+        {
+            _gearSelection = System.Text.Json.JsonSerializer.Deserialize<GearSelection>(dataParam);
+        }
+        catch
+        {
+            Navigation.NavigateTo("/booking");
+        }
+    }
+
+    private void SelectPaymentMethod(PaymentMethod method)
+    {
+        _selectedMethod = method;
+        _paymentError = null;
+    }
+
+    private bool CanPay => _selectedMethod.HasValue && 
+        (_selectedMethod == PaymentMethod.Spot || 
+         (_selectedMethod == PaymentMethod.Online && !string.IsNullOrWhiteSpace(_blikCode)) ||
+         (_selectedMethod == PaymentMethod.Spot && 
+          !string.IsNullOrWhiteSpace(_cardNumber) && !string.IsNullOrWhiteSpace(_cardExpiry) && !string.IsNullOrWhiteSpace(_cardCvv)));
+
+    private string GetPayButtonText()
+    {
+        if (_isProcessing) return "Processing...";
+        
+        return _selectedMethod switch
+        {
+            PaymentMethod.Spot => $"Confirm Reservation • {_gearSelection?.TotalAmount:F2} PLN",
+            PaymentMethod.Online => $"Pay {_gearSelection?.TotalAmount:F2} PLN",
+            _ => "Select Payment Method"
+        };
+    }
+
+    private async Task ProcessPayment()
+    {
+        if (_gearSelection == null || !_selectedMethod.HasValue) return;
+
+        _isProcessing = true;
+        _paymentError = null;
+
+        try
+        {
+            var request = new CreateBookingRequest
+            {
+                CustomerProfileId = _gearSelection.CustomerProfileId,
+                EquipmentIds = _gearSelection.EquipmentIds.Values.ToList(),
+                StartTime = _gearSelection.StartTime,
+                EndTime = _gearSelection.EndTime,
+                BlikCode = _selectedMethod == PaymentMethod.Online ? _blikCode : null
+            };
+
+            // TODO: Add card payment handling for online card payments
+            // For now, only BLIK is implemented
+
+            var result = await BookingService.CreateBookingAsync(request);
+
+            if (result.IsSuccess)
+            {
+                var confirmationData = new
+                {
+                    RentalId = result.RentalId,
+                    QrCode = result.QrCode,
+                    TotalAmount = result.TotalAmount,
+                    PaymentMethod = _selectedMethod.Value
+                };
+
+                var dataParam = Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(confirmationData));
+                Navigation.NavigateTo($"/confirmation?data={dataParam}");
+            }
+            else
+            {
+                _paymentError = result.ErrorMessage ?? "Payment failed. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _paymentError = ex.Message;
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/gear-review");
+    }
+
+    private string GetDurationText()
+    {
+        if (_gearSelection == null) return string.Empty;
+        
+        var duration = _gearSelection.EndTime - _gearSelection.StartTime;
+        var days = duration.Days;
+        var hours = duration.Hours;
+        
+        if (days > 0)
+            return $"{days} day{(days != 1 ? "s" : "")} {hours} hour{(hours != 1 ? "s" : "")}";
+        
+        return $"{hours} hour{(hours != 1 ? "s" : "")}";
+    }
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+
+    // Payment mode enum (local to this component)
+    public enum PaymentMode
+    {
+        Card,
+        Blik
+    }
+}

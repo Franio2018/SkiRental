@@ -1,0 +1,150 @@
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+
+<div class="swap-drawer-overlay @(IsOpen ? "open" : "")" @onclick="OnClosed">
+    <div class="swap-drawer @(IsOpen ? "open" : "")" @onclick:stopPropagation>
+        <div class="drawer-header">
+            <h3>Swap @Category</h3>
+            <button class="close-btn" @onclick="OnClosed">×</button>
+        </div>
+
+        @if (IsLoading)
+        {
+            <div class="drawer-loading">
+                <div class="spinner"></div>
+                <p>Loading alternatives...</p>
+            </div>
+        }
+        else if (Options.Any())
+        {
+            <div class="swap-options">
+                @foreach (var option in Options)
+                {
+                    <div class="swap-option" @onclick="() => OnOptionSelected?.Invoke(option.Equipment)">
+                        <div class="option-header">
+                            <h4>@option.Equipment.Brand @option.Equipment.Model</h4>
+                            @if (option.IsIdealSize)
+                            {
+                                <span class="best-fit-badge">Best fit</span>
+                            }
+                        </div>
+
+                        <div class="option-image">
+                            @if (!string.IsNullOrEmpty(option.Equipment.ImagePath))
+                            {
+                                <img src="@option.Equipment.ImagePath" alt="@option.Equipment.Brand @option.Equipment.Model" />
+                            }
+                            else
+                            {
+                                <div class="placeholder-image">@GetCategoryIcon(Category)</div>
+                            }
+                        </div>
+
+                        <div class="option-details">
+                            <div class="size-info">
+                                <span class="size">@option.Equipment.Size@(GetUnit(Category))</span>
+                                <span class="size-delta @GetDeltaClass(option.SizeDelta)">
+                                    @option.SizeDescription
+                                </span>
+                            </div>
+
+                            <div class="fit-rating">
+                                <span class="rating-label">Fit Score:</span>
+                                <div class="stars">
+                                    @for (int i = 0; i < 5; i++)
+                                    {
+                                        <span class="star @(i < option.FitScore * 5 ? "filled" : "")">★</span>
+                                    }
+                                </div>
+                                <span class="rating-number">@option.FitScore:F2</span>
+                            </div>
+
+                            @if (option.Equipment.Stiffness.HasValue)
+                            {
+                                <div class="stiffness-info">
+                                    <span class="stiffness">Flex @option.Equipment.Stiffness</span>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="option-footer">
+                            <div class="price">@option.Equipment.DailyRate PLN/day</div>
+                            <button class="btn-primary select-btn">
+                                Select
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="no-alternatives">
+                <div class="no-alternatives-icon">🔍</div>
+                <h4>No alternatives available</h4>
+                <p>There are no other options within the safety tolerance for your profile.</p>
+                <p class="help-text">Please contact the rental desk for assistance.</p>
+            </div>
+        }
+
+        @if (CurrentSelection != null)
+        {
+            <div class="current-selection-info">
+                <h4>Current Selection</h4>
+                <div class="current-item">
+                    <span class="item-name">@CurrentSelection.Brand @CurrentSelection.Model</span>
+                    <span class="item-size">@CurrentSelection.Size@(GetUnit(Category))</span>
+                    <span class="item-price">@CurrentSelection.DailyRate PLN/day</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public EquipmentCategory Category { get; set; }
+
+    [Parameter]
+    public List<SwapOption> Options { get; set; } = new();
+
+    [Parameter]
+    public bool IsLoading { get; set; }
+
+    [Parameter]
+    public Equipment? CurrentSelection { get; set; }
+
+    [Parameter]
+    public EventCallback<Equipment> OnOptionSelected { get; set; }
+
+    [Parameter]
+    public EventCallback OnClosed { get; set; }
+
+    private static string GetCategoryIcon(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "🎿",
+        EquipmentCategory.Poles => "🏂",
+        EquipmentCategory.Boots => "🥾",
+        EquipmentCategory.Gloves => "🧤",
+        EquipmentCategory.Helmet => "⛑️",
+        _ => "📦"
+    };
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+
+    private static string GetDeltaClass(decimal sizeDelta)
+    {
+        if (Math.Abs(sizeDelta) < 0.1m) return "perfect";
+        if (Math.Abs(sizeDelta) <= 2m) return "good";
+        return "acceptable";
+    }
+}

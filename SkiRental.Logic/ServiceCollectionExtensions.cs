@@ -50,6 +50,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<BookingService>();
         services.AddScoped<AnalyticsService>();
         services.AddScoped<UserService>();
+        
+        // ── New rental flow services ───────────────────────────────────────────
+        services.AddScoped<IRecommendationOrchestrator, RecommendationOrchestrator>();
+        services.AddScoped<IGearSwapService, GearSwapService>();
+        services.AddScoped<INotificationService, NotificationService>();
 
         return services;
     }

@@ -45,19 +45,21 @@
 
     @* Action cards — filtered by role *@
     <div class="action-grid">
+        @* ── Customer only ── *@
+        @if (Auth.IsCustomer)
+        {
+            <a href="/booking" class="action-card primary">
+                <span class="action-icon">🎿</span>
+                <h3>Nowe Wypożyczenie</h3>
+                <p>Dobierz sprzęt z pomocą Inteligentnego Asystenta</p>
+            </a>
 
-        @* ── Customer & all roles ── *@
-        <a href="/booking" class="action-card primary">
-            <span class="action-icon">🎿</span>
-            <h3>Nowe Wypożyczenie</h3>
-            <p>Dobierz sprzęt z pomocą Inteligentnego Asystenta</p>
-        </a>
-
-        <a href="/my-rentals" class="action-card">
-            <span class="action-icon">📋</span>
-            <h3>Moje Wypożyczenia</h3>
-            <p>Historia i aktywne rezerwacje</p>
-        </a>
+            <a href="/my-rentals" class="action-card">
+                <span class="action-icon">📋</span>
+                <h3>Moje Wypożyczenia</h3>
+                <p>Historia i aktywne rezerwacje</p>
+            </a>
+        }
 
         @* ── Worker + Owner ── *@
         @if (Auth.IsWorker)
@@ -66,6 +68,18 @@
                 <span class="action-icon">📷</span>
                 <h3>Panel Pracownika</h3>
                 <p>Skanuj QR / NFC, zarządzaj zwrotami</p>
+            </a>
+
+            <a href="/manage-orders" class="action-card employee">
+                <span class="action-icon">📋</span>
+                <h3>Manage orders</h3>
+                <p>All customer orders and gear assignments</p>
+            </a>
+
+            <a href="/manage-customers" class="action-card employee">
+                <span class="action-icon">👥</span>
+                <h3>Manage customers</h3>
+                <p>All customer profiles and rental history</p>
             </a>
 
             <a href="/analytics" class="action-card analytics">
