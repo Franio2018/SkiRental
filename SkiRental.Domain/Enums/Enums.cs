@@ -72,3 +72,12 @@ public enum PaymentStatus
     Refunded = 3,
     Failed = 4
 }
+
+/// <summary>
+/// Metoda płatności.
+/// </summary>
+public enum PaymentMethod
+{
+    Spot = 0,
+    Online = 1
+}

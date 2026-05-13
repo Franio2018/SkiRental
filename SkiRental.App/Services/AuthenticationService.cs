@@ -1,142 +1,195 @@
-using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using SkiRental.Domain.Models;
+using SkiRental.Logic.Interfaces;
+using SkiRental.Logic.Services;
 
 namespace SkiRental.App.Services;
 
-public class AuthenticationService
+/// <summary>
+/// Authentication service backed by the <see cref="SkiRental.Logic.Interfaces.IUserRepository"/>
+/// (EF Core / SQLite). Replaces the previous in-memory dictionary implementation.
+///
+/// Registered as Singleton in MAUI DI — holds the current session state.
+/// Uses IServiceScopeFactory to create scoped DbContext on each operation
+/// (avoids the Singleton → Scoped lifetime conflict).
+/// </summary>
+public sealed class AuthenticationService : IAuthenticationService
 {
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly JwtTokenService      _jwtTokenService;
+    private readonly ILogger<AuthenticationService> _logger;
+
+    // ── Session state (in-memory, valid for the lifetime of the app process) ──
     public bool IsAuthenticated { get; private set; }
     public string? CurrentUsername { get; private set; }
-    public string? CurrentUserId { get; private set; }
-    public UserRole CurrentRole { get; private set; } = UserRole.Customer;
+    public int? CurrentUserId { get; private set; }
+    public AppRole CurrentRole { get; private set; } = AppRole.Customer;
+    public string? CurrentJwtToken { get; private set; }
 
+    /// <summary>Fired whenever login/logout state changes — Blazor components subscribe to this.</summary>
     public event Action? AuthenticationChanged;
 
-    // Simulate user database - in real app, this would connect to a database
-    private readonly Dictionary<string, (string Password, string UserId, string Username, UserRole Role)> _users = new()
+    public AuthenticationService(
+        IServiceScopeFactory scopeFactory,
+        JwtTokenService jwtTokenService,
+        ILogger<AuthenticationService> logger)
     {
-        { "admin", ("password", "1", "Administrator", UserRole.Worker) },
-        { "worker", ("worker123", "2", "Pracownik", UserRole.Worker) },
-        { "user", ("user123", "3", "Klient", UserRole.Customer) },
-        { "test@example.com", ("test123", "4", "Test Email User", UserRole.Customer) }
-    };
+        _scopeFactory    = scopeFactory;
+        _jwtTokenService = jwtTokenService;
+        _logger          = logger;
+    }
 
-    public async Task<LoginResult> LoginAsync(string username, string password, bool rememberMe = false)
+    // ═══════════════════════════════════════════════════════════════════════
+    // Login
+    // ═══════════════════════════════════════════════════════════════════════
+
+    public async Task<LoginResult> LoginAsync(
+        string username,
+        string password,
+        bool rememberMe = false,
+        CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            return new LoginResult(false, "Nazwa użytkownika i hasło są wymagane.");
+
+        using var scope      = _scopeFactory.CreateScope();
+        var userRepo         = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var userService      = scope.ServiceProvider.GetRequiredService<UserService>();
+
+        AppUser? user;
         try
         {
-            // Simulate processing time
-            await Task.Delay(1000);
-
-            // Validate input
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
-            {
-                return new LoginResult(false, "Nazwa użytkownika i hasło są wymagane");
-            }
-
-            // Check credentials
-            if (_users.TryGetValue(username.ToLower(), out var user))
-            {
-                if (user.Password == password)
-                {
-                    // Successful login
-                    IsAuthenticated = true;
-                    CurrentUsername = user.Username;
-                    CurrentUserId = user.UserId;
-                    CurrentRole = user.Role;
-
-                    // Notify UI components of authentication change
-                    AuthenticationChanged?.Invoke();
-
-                    // In a real app, you would:
-                    // 1. Generate a JWT token
-                    // 2. Store it securely (localStorage, secure cookie, etc.)
-                    // 3. Set up user session
-                    // 4. Handle "remember me" functionality
-
-                    return new LoginResult(true, "Logowanie pomyślne");
-                }
-            }
-
-            return new LoginResult(false, "Nieprawidłowa nazwa użytkownika lub hasło");
+            user = await userRepo.GetByUsernameAsync(username, ct);
         }
         catch (Exception ex)
         {
-            return new LoginResult(false, $"Wystąpił błąd podczas logowania: {ex.Message}");
+            _logger.LogError(ex, "Database error during login for {Username}", username);
+            // For debugging, show actual error message
+            return new LoginResult(false, $"Błąd bazy danych: {ex.Message}");
         }
+
+        if (user is null)
+        {
+            _logger.LogWarning("Login failed – unknown user: {Username}", username);
+            // Return same message as wrong password to prevent username enumeration
+            return new LoginResult(false, "Nieprawidłowa nazwa użytkownika lub hasło.");
+        }
+
+        // Lockout check
+        if (user.IsCurrentlyLocked)
+        {
+            var remaining = user.LockoutEnd.HasValue
+                ? $" Spróbuj ponownie o {user.LockoutEnd.Value.ToLocalTime():HH:mm}."
+                : string.Empty;
+            _logger.LogWarning("Login blocked – user {Username} is locked", username);
+            return new LoginResult(false, $"Konto jest zablokowane.{remaining}");
+        }
+
+        // Password verification
+        bool passwordOk;
+        try
+        {
+            passwordOk = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "BCrypt verification error for {Username}", username);
+            return new LoginResult(false, "Błąd weryfikacji hasła.");
+        }
+
+        if (!passwordOk)
+        {
+            await userService.RecordFailedLoginAsync(user, ct);
+            _logger.LogWarning("Login failed – wrong password for {Username} (attempt {N})",
+                username, user.FailedLoginAttempts);
+            return new LoginResult(false, "Nieprawidłowa nazwa użytkownika lub hasło.");
+        }
+
+        // Success
+        await userService.RecordSuccessfulLoginAsync(user, ct);
+
+        var jwtToken = _jwtTokenService.GenerateToken(
+            user.Id.ToString(), user.Username, MapToLegacyRole(user.AppRole));
+
+        IsAuthenticated  = true;
+        CurrentUsername  = user.Username;
+        CurrentUserId    = user.Id;
+        CurrentRole      = user.AppRole;
+        CurrentJwtToken  = jwtToken;
+
+        _logger.LogInformation("User {Username} logged in (role={Role})", user.Username, user.AppRole);
+        AuthenticationChanged?.Invoke();
+
+        // TODO: For "Remember Me" on mobile, persist the JWT token to
+        //       SecureStorage (Microsoft.Maui.Storage.SecureStorage) so it
+        //       survives app restarts. That requires token refresh logic —
+        //       planned for the API-based auth phase.
+
+        return new LoginResult(true, "Logowanie pomyślne.", jwtToken);
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Logout
+    // ═══════════════════════════════════════════════════════════════════════
 
     public void Logout()
     {
+        _logger.LogInformation("User {Username} logged out", CurrentUsername);
+
         IsAuthenticated = false;
         CurrentUsername = null;
-        CurrentUserId = null;
-        CurrentRole = UserRole.Customer;
+        CurrentUserId   = null;
+        CurrentRole     = AppRole.Customer;
+        CurrentJwtToken = null;
 
-        // Notify UI components of authentication change
         AuthenticationChanged?.Invoke();
-
-        // In a real app, you would:
-        // 1. Clear stored tokens
-        // 2. Invalidate session
-        // 3. Clear any user data
     }
 
-    public async Task<RegisterResult> RegisterAsync(string username, string email, string password, string confirmPassword)
+    // ═══════════════════════════════════════════════════════════════════════
+    // Registration (self-service, Customer role only)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    public async Task<RegisterResult> RegisterAsync(
+        string username,
+        string password,
+        string confirmPassword,
+        CancellationToken ct = default)
     {
-        try
-        {
-            // Simulate processing time
-            await Task.Delay(500);
+        if (password != confirmPassword)
+            return new RegisterResult(false, "Hasła nie są identyczne.");
 
-            // Validate input
-            var errors = new List<string>();
+        using var scope  = _scopeFactory.CreateScope();
+        var userService  = scope.ServiceProvider.GetRequiredService<UserService>();
 
-            if (string.IsNullOrWhiteSpace(username))
-                errors.Add("Nazwa użytkownika jest wymagana");
-
-            if (string.IsNullOrWhiteSpace(email))
-                errors.Add("Email jest wymagany");
-            else if (!email.Contains("@"))
-                errors.Add("Nieprawidłowy format email");
-
-            if (string.IsNullOrWhiteSpace(password))
-                errors.Add("Hasło jest wymagane");
-            else if (password.Length < 6)
-                errors.Add("Hasło musi mieć co najmniej 6 znaków");
-
-            if (password != confirmPassword)
-                errors.Add("Hasła nie są identyczne");
-
-            if (errors.Any())
-            {
-                return new RegisterResult(false, string.Join("; ", errors));
-            }
-
-            // Check if user already exists
-            if (_users.ContainsKey(username.ToLower()) || _users.ContainsKey(email.ToLower()))
-            {
-                return new RegisterResult(false, "Użytkownik o podanej nazwie lub emailu już istnieje");
-            }
-
-            // Register new user (in real app, save to database)
-            var newUserId = (_users.Count + 1).ToString();
-            _users[username.ToLower()] = (password, newUserId, username, UserRole.Customer);
-
-            return new RegisterResult(true, "Rejestracja pomyślna. Możesz się teraz zalogować.");
-        }
-        catch (Exception ex)
-        {
-            return new RegisterResult(false, $"Wystąpił błąd podczas rejestracji: {ex.Message}");
-        }
+        var result = await userService.CreateUserAsync(username, password, AppRole.Customer, ct);
+        return result.IsSuccess
+            ? new RegisterResult(true, "Rejestracja pomyślna. Możesz się teraz zalogować.")
+            : new RegisterResult(false, result.ErrorMessage ?? "Nieznany błąd.");
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Role helpers (convenience for Blazor components)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    public bool IsOwner  => IsAuthenticated && CurrentRole == AppRole.Owner;
+    public bool IsWorker => IsAuthenticated && CurrentRole is AppRole.Worker or AppRole.Owner;
+    public bool IsCustomer => IsAuthenticated && CurrentRole == AppRole.Customer;
+
+    // ── Backward-compat shim for any components still using old UserRole enum ──
+    public UserRole CurrentLegacyRole => MapToLegacyRole(CurrentRole);
+
+    private static UserRole MapToLegacyRole(AppRole role) => role switch
+    {
+        AppRole.Owner  => UserRole.Worker,   // Owner is a superset of Worker
+        AppRole.Worker => UserRole.Worker,
+        _              => UserRole.Customer
+    };
 }
 
-public enum UserRole
-{
-    Customer,
-    Worker
-}
+// Keep the old enum for backward compatibility with existing Blazor components.
+// New code should use AppRole directly.
+public enum UserRole { Customer, Worker }
 
-public record LoginResult(bool Success, string Message);
-
+public record LoginResult(bool Success, string Message, string? JwtToken = null);
 public record RegisterResult(bool Success, string Message);

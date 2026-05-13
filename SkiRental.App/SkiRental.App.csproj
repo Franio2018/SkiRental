@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
 
 	<PropertyGroup>
-		<TargetFrameworks>net9.0-android;net9.0-ios;net9.0-maccatalyst;net9.0-windows10.0.19041.0</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">net9.0-android;net9.0-ios;net9.0-maccatalyst;net9.0-windows10.0.19041.0</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net9.0-android;net9.0-ios;net9.0-maccatalyst</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Linux'))">net9.0-android</TargetFrameworks>
+
 		<OutputType>Exe</OutputType>
 		<RootNamespace>SkiRental.App</RootNamespace>
 		<UseMaui>true</UseMaui>
@@ -16,16 +19,16 @@
 
 		<AndroidMinSdkVersion>24</AndroidMinSdkVersion>
 		<AndroidTargetSdkVersion>34</AndroidTargetSdkVersion>
-
 		<iOSMinimumOSVersion>15.0</iOSMinimumOSVersion>
 
 		<WindowsPackageType>None</WindowsPackageType>
 
 		<AssetTargetFallback>$(AssetTargetFallback);net9.0</AssetTargetFallback>
 
-				<DisableBuildCompression>true</DisableBuildCompression>
-
-		<OutputType>Exe</OutputType>
+		<DisableBuildCompression>true</DisableBuildCompression>
+		<EnableCompressionOnPublish>false</EnableCompressionOnPublish>
+		<BlazorEnableCompression>false</BlazorEnableCompression>
+		<IsPublishable>false</IsPublishable>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -34,13 +37,24 @@
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
+	<!-- appsettings.json must be an embedded resource so MAUI can read it at runtime -->
 	<ItemGroup>
+		<EmbeddedResource Include="appsettings.json" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
 		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="9.0.0" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
 		<PackageReference Include="ZXing.Net.Maui.Controls" Version="0.4.0" />
 		<PackageReference Include="Plugin.NFC" Version="0.1.22" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
 		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
 		<PackageReference Include="OpenWeatherMap.Standard" Version="3.0.0" />

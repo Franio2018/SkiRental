@@ -1,0 +1,313 @@
+@page "/equipment-management"
+@using SkiRental.App.Services
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Interfaces
+@inject AuthenticationService Auth
+@inject IEquipmentRepository EquipRepo
+
+<PageTitle>Zarządzanie Sprzętem | SkiRental</PageTitle>
+
+<div class="page-container">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / Zarządzanie Sprzętem
+    </nav>
+
+    @if (!Auth.IsWorker)
+    {
+        <div class="error-message">🔒 Tylko pracownicy i właściciel mają dostęp do tej sekcji.</div>
+        return;
+    }
+
+    <div class="section-header">
+        <h2>🎿 Zarządzanie Sprzętem</h2>
+        @if (Auth.IsOwner)
+        {
+            <button class="btn-primary" @onclick="ShowAddForm">+ Dodaj sprzęt</button>
+        }
+    </div>
+
+    @if (_feedback is not null)
+    {
+        <div class="@(_feedbackError ? "error-message" : "success-message")">@_feedback</div>
+    }
+
+    @* ── Add / Edit form ── *@
+    @if (_editItem is not null)
+    {
+        <div class="card create-form">
+            <h3>@(_isNew ? "Dodaj nowy sprzęt" : $"Edytuj – {_editItem.SerialNumber}")</h3>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Numer seryjny</label>
+                    <input type="text" @bind="_editItem.SerialNumber" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Marka</label>
+                    <input type="text" @bind="_editItem.Brand" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <input type="text" @bind="_editItem.Model" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Kategoria</label>
+                    <select @bind="_editItem.Category" class="form-input">
+                        @foreach (var cat in Enum.GetValues<EquipmentCategory>())
+                        {
+                            <option value="@cat">@cat</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Rozmiar (cm)</label>
+                    <input type="number" @bind="_editItem.Size" step="0.5" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Sztywność (NNN/SNS)</label>
+                    <input type="number" @bind="_editItem.Stiffness" min="1" max="100" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Styl</label>
+                    <select @bind="_editItem.CompatibleStyle" class="form-input">
+                        @foreach (var style in Enum.GetValues<SkiStyle>())
+                        {
+                            <option value="@style">@style</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Rok produkcji</label>
+                    <input type="number" @bind="_editItem.YearOfProduction" min="2000" max="2030" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Stawka dzienna (zł)</label>
+                    <input type="number" @bind="_editItem.DailyRate" step="0.5" min="0" class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select @bind="_editItem.Status" class="form-input">
+                        @foreach (var s in Enum.GetValues<EquipmentStatus>())
+                        {
+                            <option value="@s">@StatusLabel(s)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Notatki serwisowe</label>
+                <textarea @bind="_editItem.MaintenanceNotes" class="form-input" rows="3"></textarea>
+            </div>
+            <div class="form-actions">
+                <button class="btn-primary" @onclick="SaveItem" disabled="@_working">
+                    @(_working ? "Zapisuję..." : "Zapisz")
+                </button>
+                <button class="btn-secondary" @onclick="() => _editItem = null">Anuluj</button>
+            </div>
+        </div>
+    }
+
+    @* ── Equipment list ── *@
+    @if (_equipment is null)
+    {
+        <div class="loading-spinner"><div class="spinner"></div><p>Ładowanie...</p></div>
+    }
+    else
+    {
+        @* Status filter *@
+        <div class="filter-bar">
+            @foreach (var status in new[] { (EquipmentStatus?)null, EquipmentStatus.Available,
+                                            EquipmentStatus.Rented, EquipmentStatus.Maintenance,
+                                            EquipmentStatus.Retired })
+            {
+                <button class="filter-btn @(_filter == status ? "active" : "")"
+                        @onclick="() => _filter = status">
+                    @(status is null ? "Wszystko" : StatusLabel(status.Value))
+                </button>
+            }
+        </div>
+
+        var visible = _filter is null
+            ? _equipment
+            : _equipment.Where(e => e.Status == _filter).ToList();
+
+        <div class="equipment-grid">
+            @foreach (var item in visible)
+            {
+                <div class="equipment-card status-@item.Status.ToString().ToLower()">
+                    <div class="equipment-card-header">
+                        <span class="category-icon">@CategoryIcon(item.Category)</span>
+                        <span class="equipment-status">@StatusLabel(item.Status)</span>
+                    </div>
+                    <h4>@item.Brand @item.Model</h4>
+                    <div class="equipment-details">
+                        <div class="detail-row"><span>S/N:</span><span>@item.SerialNumber</span></div>
+                        <div class="detail-row"><span>Rozmiar:</span><span>@item.Size cm</span></div>
+                        <div class="detail-row"><span>Styl:</span><span>@item.CompatibleStyle</span></div>
+                        <div class="detail-row"><span>Stawka:</span><span>@item.DailyRate.ToString("N2") zł/dzień</span></div>
+                        @if (item.LastMaintenanceDate.HasValue)
+                        {
+                            var daysSince = (DateTime.UtcNow - item.LastMaintenanceDate.Value).Days;
+                            <div class="detail-row @(daysSince > 30 ? "maintenance-warning" : "")">
+                                <span>Serwis:</span>
+                                <span>@item.LastMaintenanceDate.Value.ToString("dd.MM.yyyy") (@daysSince dni temu)</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="detail-row maintenance-warning">
+                                <span>Serwis:</span><span>⚠️ Nigdy</span>
+                            </div>
+                        }
+                    </div>
+                    @if (Auth.IsOwner)
+                    {
+                        <div class="card-actions">
+                            <button class="btn-sm btn-outline" @onclick="() => StartEdit(item)">✏️ Edytuj</button>
+                            @if (item.Status != EquipmentStatus.Retired)
+                            {
+                                <button class="btn-sm btn-danger"
+                                        @onclick="() => RetireEquipment(item)"
+                                        title="Wycofaj z floty">🚫 Wycofaj</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (!visible.Any())
+        {
+            <p class="no-data">Brak sprzętu spełniającego wybrane kryteria.</p>
+        }
+    }
+</div>
+
+@code {
+    private IReadOnlyList<Equipment>? _equipment;
+    private Equipment? _editItem;
+    private bool _isNew;
+    private bool _working;
+    private string? _feedback;
+    private bool _feedbackError;
+    private EquipmentStatus? _filter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Auth.IsWorker)
+            await LoadEquipment();
+    }
+
+    private async Task LoadEquipment()
+    {
+        _equipment = await EquipRepo.GetAllAsync();
+    }
+
+    private void ShowAddForm()
+    {
+        _isNew    = true;
+        _editItem = new Equipment
+        {
+            YearOfProduction = DateTime.UtcNow.Year,
+            Status           = EquipmentStatus.Available,
+            Category         = EquipmentCategory.Skis,
+            CompatibleStyle  = SkiStyle.Classic
+        };
+    }
+
+    private void StartEdit(Equipment item)
+    {
+        _isNew    = false;
+        _editItem = new Equipment
+        {
+            Id                = item.Id,
+            SerialNumber      = item.SerialNumber,
+            Brand             = item.Brand,
+            Model             = item.Model,
+            Category          = item.Category,
+            Size              = item.Size,
+            Stiffness         = item.Stiffness,
+            Status            = item.Status,
+            CompatibleStyle   = item.CompatibleStyle,
+            YearOfProduction  = item.YearOfProduction,
+            DailyRate         = item.DailyRate,
+            MaintenanceNotes  = item.MaintenanceNotes,
+            LastMaintenanceDate = item.LastMaintenanceDate,
+            TotalRentalDays   = item.TotalRentalDays
+        };
+    }
+
+    private async Task SaveItem()
+    {
+        if (_editItem is null) return;
+        _working = true;
+
+        try
+        {
+            if (_isNew)
+                await EquipRepo.CreateAsync(_editItem);
+            else
+                await EquipRepo.UpdateAsync(_editItem);
+
+            _editItem = null;
+            await LoadEquipment();
+            SetFeedback("✅ Sprzęt zapisany pomyślnie.", false);
+        }
+        catch (Exception ex)
+        {
+            SetFeedback($"❌ Błąd zapisu: {ex.Message}", true);
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    private async Task RetireEquipment(Equipment item)
+    {
+        _working = true;
+        try
+        {
+            await EquipRepo.UpdateStatusAsync(item.Id, EquipmentStatus.Retired);
+            await LoadEquipment();
+            SetFeedback($"✅ Sprzęt {item.SerialNumber} wycofany z floty.", false);
+        }
+        catch (Exception ex)
+        {
+            SetFeedback($"❌ Błąd: {ex.Message}", true);
+        }
+        finally
+        {
+            _working = false;
+        }
+    }
+
+    private void SetFeedback(string msg, bool isError)
+    {
+        _feedback      = msg;
+        _feedbackError = isError;
+        _ = Task.Delay(5000).ContinueWith(_ =>
+        {
+            _feedback = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private static string StatusLabel(EquipmentStatus s) => s switch
+    {
+        EquipmentStatus.Available   => "Dostępny",
+        EquipmentStatus.Rented      => "Wypożyczony",
+        EquipmentStatus.Maintenance => "Serwis",
+        EquipmentStatus.Retired     => "Wycofany",
+        _                           => s.ToString()
+    };
+
+    private static string CategoryIcon(EquipmentCategory c) => c switch
+    {
+        EquipmentCategory.Skis    => "🎿",
+        EquipmentCategory.Boots   => "👢",
+        EquipmentCategory.Poles   => "🏒",
+        EquipmentCategory.Helmet  => "⛑️",
+        _                         => "📦"
+    };
+}

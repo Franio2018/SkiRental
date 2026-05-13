@@ -6,8 +6,8 @@ using SkiRental.Logic.Interfaces;
 namespace SkiRental.Logic.Services;
 
 /// <summary>
-/// Serwis analityczny dla back-office.
-/// Dostarcza wskaźniki KPI dla zarządzania flotą sprzętu.
+/// Serwis analityczny dla back-office (Owner / Worker).
+/// Dostarcza wskaźniki KPI dla zarządzania flotą sprzętu i przychodami.
 /// </summary>
 public sealed class AnalyticsService
 {
@@ -26,19 +26,12 @@ public sealed class AnalyticsService
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // UtilizationRate – kluczowy KPI
+    // Utilization rate – core KPI
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Oblicza wskaźnik użycia sprzętu dla danego sezonu:
-    ///   UtilizationRate = Σ(czas wypożyczeń) / Całkowity dostępny czas sezonu
-    ///
-    /// Całkowity dostępny czas = (SeasonEnd – SeasonStart) w godzinach.
-    /// Czas serwisowy jest odejmowany od mianownika.
+    /// Oblicza wskaźnik użycia sprzętu (UtilizationRate) dla danego sezonu.
     /// </summary>
-    /// <param name="equipmentId">ID sprzętu do analizy.</param>
-    /// <param name="seasonStart">Początek sezonu.</param>
-    /// <param name="seasonEnd">Koniec sezonu.</param>
     public async Task<UtilizationReport> CalculateUtilizationRateAsync(
         int equipmentId,
         DateTime seasonStart,
@@ -51,28 +44,24 @@ public sealed class AnalyticsService
         var rentals = await _rentalRepo.GetRentalsForUtilizationAsync(
             equipmentId, seasonStart, seasonEnd, ct);
 
-        // Zsumuj czas aktywnych wypożyczeń (godziny)
         double totalRentedHours = rentals
             .Where(r => r.Status is RentalStatus.Active or RentalStatus.Completed)
             .Sum(r =>
             {
                 var endTime = r.ActualReturnTime ?? r.EndTime;
-                // Ogranicz do granic sezonu
-                var start = r.StartTime < seasonStart ? seasonStart : r.StartTime;
-                var end   = endTime > seasonEnd ? seasonEnd : endTime;
+                var start   = r.StartTime < seasonStart ? seasonStart : r.StartTime;
+                var end     = endTime > seasonEnd ? seasonEnd : endTime;
                 return end > start ? (end - start).TotalHours : 0;
             });
 
-        // Całkowity dostępny czas sezonu [h]
         double seasonTotalHours = (seasonEnd - seasonStart).TotalHours;
 
-        // Przychód
         decimal revenue = rentals
             .Where(r => r.PaymentStatus == PaymentStatus.Paid)
             .Sum(r => r.TotalAmount);
 
         _logger.LogDebug(
-            "Utilization for Equipment {Id}: {Hours}h rented / {Total}h available = {Rate:P1}",
+            "Utilization Equipment {Id}: {Hours}h / {Total}h = {Rate:P1}",
             equipmentId, totalRentedHours, seasonTotalHours,
             seasonTotalHours > 0 ? totalRentedHours / seasonTotalHours : 0);
 
@@ -113,27 +102,79 @@ public sealed class AnalyticsService
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Dodatkowe KPI
+    // Revenue report
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// <summary>Oblicza średni czas trwania wypożyczenia [h].</summary>
+    /// <summary>
+    /// Raport przychodów dzienny/tygodniowy/miesięczny dla właściciela.
+    /// </summary>
+    public async Task<RevenueReport> GetRevenueReportAsync(
+        DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var rentals = await _rentalRepo.GetAllRentalsAsync(from, to, ct);
+
+        var paid = rentals.Where(r => r.PaymentStatus == PaymentStatus.Paid).ToList();
+
+        var byCategory = paid
+            .SelectMany(r => r.RentalEquipments)
+            .GroupBy(re => re.Equipment.Category)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(re =>
+                {
+                    var rental = paid.First(r => r.RentalEquipments.Contains(re));
+                    // Proportional revenue split by item count
+                    return rental.TotalAmount / rental.RentalEquipments.Count;
+                })
+            );
+
+        return new RevenueReport
+        {
+            From               = from,
+            To                 = to,
+            TotalRevenue       = paid.Sum(r => r.TotalAmount),
+            TotalRentals       = rentals.Count,
+            PaidRentals        = paid.Count,
+            CancelledRentals   = rentals.Count(r => r.Status == RentalStatus.Cancelled),
+            OverdueRentals     = rentals.Count(r => r.Status == RentalStatus.Overdue),
+            RevenueByCategory  = byCategory,
+            AverageRentalValue = paid.Count > 0 ? paid.Average(r => r.TotalAmount) : 0
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Average rental duration (BUG FIX)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Oblicza średni czas trwania wypożyczenia [h] w podanym przedziale dat.
+    ///
+    /// BUG FIX vs original: original called GetActiveRentalsAsync() (Pending+Active only)
+    /// then filtered for Completed — always returned 0. This now uses GetAllRentalsAsync.
+    /// </summary>
     public async Task<double> GetAverageRentalDurationAsync(
         DateTime from, DateTime to, CancellationToken ct = default)
     {
-        var rentals = await _rentalRepo.GetActiveRentalsAsync(ct);
-        var filtered = rentals
-            .Where(r => r.StartTime >= from && r.StartTime <= to && r.Status == RentalStatus.Completed)
+        var rentals = await _rentalRepo.GetAllRentalsAsync(from, to, ct);
+
+        var completed = rentals
+            .Where(r => r.Status == RentalStatus.Completed)
             .ToList();
 
-        if (!filtered.Any()) return 0;
+        if (completed.Count == 0) return 0;
 
-        return filtered.Average(r =>
+        return completed.Average(r =>
             ((r.ActualReturnTime ?? r.EndTime) - r.StartTime).TotalHours);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Maintenance alerts
+    // ═══════════════════════════════════════════════════════════════════════
+
     /// <summary>
-    /// Identyfikuje sprzęt wymagający przeglądu
-    /// (utilization > 80% lub nie serwisowany > 30 dni).
+    /// Identyfikuje sprzęt wymagający przeglądu:
+    ///   – nie serwisowany ponad 30 dni, lub
+    ///   – nigdy nie serwisowany.
     /// </summary>
     public async Task<IReadOnlyList<Equipment>> GetEquipmentRequiringMaintenanceAsync(
         CancellationToken ct = default)
@@ -147,4 +188,22 @@ public sealed class AnalyticsService
             .ToList()
             .AsReadOnly();
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Report DTOs
+// ═══════════════════════════════════════════════════════════════════════════════
+
+
+public record RevenueReport
+{
+    public DateTime From { get; init; }
+    public DateTime To { get; init; }
+    public decimal TotalRevenue { get; init; }
+    public int TotalRentals { get; init; }
+    public int PaidRentals { get; init; }
+    public int CancelledRentals { get; init; }
+    public int OverdueRentals { get; init; }
+    public decimal AverageRentalValue { get; init; }
+    public Dictionary<EquipmentCategory, decimal> RevenueByCategory { get; init; } = new();
 }

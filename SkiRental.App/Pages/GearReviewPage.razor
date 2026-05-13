@@ -1,0 +1,314 @@
+@page "/gear-review"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Interfaces
+@using Microsoft.AspNetCore.Components
+
+@inject IRecommendationOrchestrator RecommendationOrchestrator
+@inject IGearSwapService GearSwapService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Review Your Gear - SkiRental</PageTitle>
+
+<div class="gear-review-page">
+    @if (_recommendation == null)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading your gear selection...</p>
+        </div>
+    }
+    else
+    {
+        <div class="review-header">
+            <h2>Your Recommended Gear</h2>
+            <p class="subtitle">Review your selection and make changes if needed</p>
+            
+            @if (_recommendation.Status == RecommendationStatus.Partial)
+            {
+                <div class="warning-banner">
+                    <span class="warning-icon">⚠️</span>
+                    <div>
+                        <strong>Some items are outside ideal range</strong>
+                        <p>We've found the closest available options within safety tolerance.</p>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="gear-cards">
+            @foreach (var kvp in _currentSelection)
+            {
+                var category = kvp.Key;
+                var equipment = kvp.Value;
+                var matchStatus = _recommendation.MatchStatus.GetValueOrDefault(category);
+                var fallbackNote = _recommendation.FallbackNotes.GetValueOrDefault(category);
+
+                <div class="gear-card" id="gear-@category">
+                    <div class="card-header">
+                        <h3>@category</h3>
+                        <div class="match-badge @(matchStatus.ToString().ToLower())">
+                            @GetMatchStatusText(matchStatus)
+                        </div>
+                    </div>
+
+                    <div class="equipment-details">
+                        <div class="equipment-image">
+                            @if (!string.IsNullOrEmpty(equipment.ImagePath))
+                            {
+                                <img src="@equipment.ImagePath" alt="@equipment.Brand @equipment.Model" />
+                            }
+                            else
+                            {
+                                <div class="placeholder-image">🎿</div>
+                            }
+                        </div>
+
+                        <div class="equipment-info">
+                            <h4>@equipment.Brand @equipment.Model</h4>
+                            <div class="specs">
+                                <span class="size">@equipment.Size@(GetUnit(category))</span>
+                                @if (equipment.Stiffness.HasValue)
+                                {
+                                    <span class="stiffness">Flex @equipment.Stiffness</span>
+                                }
+                            </div>
+                            <div class="daily-rate">@equipment.DailyRate PLN/day</div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(fallbackNote))
+                    {
+                        <div class="fallback-note">
+                            <strong>Fallback note:</strong> @fallbackNote
+                        </div>
+                    }
+
+                    <div class="card-actions">
+                        <button class="btn-secondary swap-btn" 
+                                @onclick="() => OpenSwapDrawer(category)">
+                            Swap Item
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="price-summary">
+            <h3>Price Summary</h3>
+            <div class="price-lines">
+                @foreach (var kvp in _currentSelection)
+                {
+                    var equipment = kvp.Value;
+                    <div class="price-line">
+                        <span>@equipment.Brand @equipment.Model (@equipment.Size@(GetUnit(kvp.Key)))</span>
+                        <span>@equipment.DailyRate PLN/day</span>
+                    </div>
+                }
+                <div class="price-total">
+                    <strong>Total Daily Rate</strong>
+                    <strong>@_currentSelection.Values.Sum(e => e.DailyRate) PLN/day</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="navigation-actions">
+            <button class="btn-secondary" @onclick="GoBack">
+                ← Back to Profile
+            </button>
+            <button class="btn-primary proceed-btn" @onclick="ProceedToPayment" disabled="@_isProcessing">
+                @(_isProcessing ? "Processing..." : "Proceed to Payment →")
+            </button>
+        </div>
+    }
+}
+
+<!-- Swap Drawer Component -->
+@if (_isSwapDrawerOpen)
+{
+    <div class="swap-drawer-overlay" @onclick="CloseSwapDrawer">
+        <div class="swap-drawer" @onclick:stopPropagation>
+            <div class="drawer-header">
+                <h3>Swap @(_activeSwapCategory?.ToString() ?? "")</h3>
+                <button class="close-btn" @onclick="CloseSwapDrawer">×</button>
+            </div>
+
+            @if (_isLoadingSwaps)
+            {
+                <div class="drawer-loading">
+                    <div class="spinner"></div>
+                    <p>Loading alternatives...</p>
+                </div>
+            }
+            else if (_swapOptions.Any())
+            {
+                <div class="swap-options">
+                    @foreach (var option in _swapOptions)
+                    {
+                        <div class="swap-option" @onclick="() => SelectSwapOption(option)">
+                            <div class="option-header">
+                                <h4>@option.Equipment.Brand @option.Equipment.Model</h4>
+                                @if (option.IsIdealSize)
+                                {
+                                    <span class="best-fit-badge">Best fit</span>
+                                }
+                            </div>
+                            <div class="option-details">
+                                <span class="size">@option.Equipment.Size@(GetUnit(_activeSwapCategory!.Value))</span>
+                                <span class="size-delta">@option.SizeDescription</span>
+                                <div class="fit-score">
+                                    @for (int i = 0; i < 5; i++)
+                                    {
+                                        <span class="star @(i < option.FitScore * 5 ? "filled" : "")">★</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="option-price">@option.Equipment.DailyRate PLN/day</div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="no-alternatives">
+                    <p>No alternatives available within safety tolerance.</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private RecommendationResult? _recommendation;
+    private Dictionary<EquipmentCategory, Equipment> _currentSelection = new();
+    private bool _isSwapDrawerOpen;
+    private EquipmentCategory? _activeSwapCategory;
+    private List<SwapOption> _swapOptions = new();
+    private bool _isLoadingSwaps;
+    private bool _isProcessing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecommendationFromQuery();
+    }
+
+    private async Task LoadRecommendationFromQuery()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var dataParam = query["data"];
+
+        if (string.IsNullOrEmpty(dataParam))
+        {
+            Navigation.NavigateTo("/booking");
+            return;
+        }
+
+        try
+        {
+            _recommendation = System.Text.Json.JsonSerializer.Deserialize<RecommendationResult>(dataParam);
+            _currentSelection = new Dictionary<EquipmentCategory, Equipment>(_recommendation!.Selection);
+        }
+        catch
+        {
+            Navigation.NavigateTo("/booking");
+        }
+    }
+
+    private async Task OpenSwapDrawer(EquipmentCategory category)
+    {
+        if (_recommendation?.Parameters == null) return;
+
+        _activeSwapCategory = category;
+        _isSwapDrawerOpen = true;
+        _isLoadingSwaps = true;
+        _swapOptions.Clear();
+
+        var currentEquipment = _currentSelection[category];
+
+        try
+        {
+            _swapOptions = await GearSwapService.GetSwapOptionsAsync(
+                category,
+                _recommendation.Parameters,
+                currentEquipment.Id);
+
+            _isLoadingSwaps = false;
+        }
+        catch (Exception ex)
+        {
+            _isLoadingSwaps = false;
+            // TODO: Show error message
+        }
+    }
+
+    private void CloseSwapDrawer()
+    {
+        _isSwapDrawerOpen = false;
+        _activeSwapCategory = null;
+        _swapOptions.Clear();
+    }
+
+    private void SelectSwapOption(SwapOption option)
+    {
+        if (_activeSwapCategory.HasValue)
+        {
+            _currentSelection[_activeSwapCategory.Value] = option.Equipment;
+        }
+
+        CloseSwapDrawer();
+    }
+
+    private async Task ProceedToPayment()
+    {
+        if (_recommendation == null || _recommendation.Parameters == null) return;
+
+        _isProcessing = true;
+
+        try
+        {
+            // Re-validate availability before proceeding
+            // TODO: Add availability validation logic
+
+            var gearSelection = new GearSelection
+            {
+                CustomerProfileId = 1, // TODO: Get from auth service
+                EquipmentIds = _currentSelection.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Id),
+                StartTime = DateTime.Now.AddHours(1),
+                EndTime = DateTime.Now.AddDays(1),
+                TotalAmount = _currentSelection.Values.Sum(e => e.DailyRate),
+                Recommendation = _recommendation
+            };
+
+            var dataParam = Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(gearSelection));
+            Navigation.NavigateTo($"/payment?data={dataParam}");
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/booking");
+    }
+
+    private static string GetMatchStatusText(MatchStatus? status) => status switch
+    {
+        MatchStatus.ExactMatch => "Perfect Fit",
+        MatchStatus.FallbackMatch => "Close Match",
+        MatchStatus.NoMatch => "No Match",
+        _ => "Unknown"
+    };
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+}
+</div>

@@ -1,6 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+using System.Reflection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using SkiRental.Logic;
 using SkiRental.Logic.Interfaces;
 using SkiRental.Logic.Services;
@@ -17,49 +19,57 @@ public static class MauiProgram
 
         builder
             .UseMauiApp<App>()
-            // ── ZXing QR/Barcode scanner ───────────────────────────────────
             .UseBarcodeReader()
             .ConfigureFonts(fonts =>
             {
-                fonts.AddFont("OpenSans-Regular.ttf",    "OpenSansRegular");
-                fonts.AddFont("OpenSans-Semibold.ttf",   "OpenSansSemibold");
-                fonts.AddFont("Montserrat-Bold.ttf",     "MontserratBold");
+                fonts.AddFont("OpenSans-Regular.ttf",  "OpenSansRegular");
+                fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                fonts.AddFont("Montserrat-Bold.ttf",   "MontserratBold");
             });
 
-        // ── Blazor WebView ────────────────────────────────────────────────
         builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
-        //builder.Logging.AddDebug();
 #endif
 
-        // ── EF Core – SQLite (offline first) ─────────────────────────────
-        var dbPath = Path.Combine(
-            FileSystem.AppDataDirectory, "SkiRental.db");
+        // ── Configuration ─────────────────────────────────────────────────────
+        // appsettings.json must be EmbeddedResource in the .csproj (see fix).
+        // Without this the stream is null, config is empty, and JwtTokenService
+        // throws on startup because SecretKey is an empty string.
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream("SkiRental.App.appsettings.json");
+        if (stream is not null)
+            builder.Configuration.AddJsonStream(stream);
 
-        builder.Services.AddDbContext<SkiRentalDbContext>(opts =>
-            opts.UseSqlite($"Data Source={dbPath}")
-                .EnableSensitiveDataLogging(false), // wyłącz w prod
-            ServiceLifetime.Scoped);
+        var config = builder.Configuration;
 
-        // ── PayU configuration ────────────────────────────────────────────
-        builder.Services.Configure<PayUOptions>(opts =>
+        // ── Database ──────────────────────────────────────────────────────────
+        var localDbPath = Path.Combine(FileSystem.AppDataDirectory, "SkiRental.db");
+        var connectionString = $"Data Source={localDbPath}";
+
+        // Single call — registers DbContext + all repositories + domain services.
+        builder.Services.AddSkiRentalServices(connectionString);
+
+        // ── JWT — with safe fallback so an unconfigured key never crashes app ─
+        builder.Services.Configure<JwtOptions>(opts =>
         {
-            // W produkcji odczytaj z appsettings.json lub Azure Key Vault
-            opts.PosId        = "YOUR_POS_ID";
-            opts.SignatureKey  = "YOUR_SIGNATURE_KEY";
-            opts.ClientId      = "YOUR_CLIENT_ID";
-            opts.ClientSecret  = "YOUR_CLIENT_SECRET";
-            opts.BaseUrl       = "https://secure.snd.payu.com"; // sandbox
-            opts.NotifyUrl     = "https://YOUR_API/api/payu/notify";
+            var s = config.GetSection(JwtOptions.SectionName);
+            opts.SecretKey         = s["SecretKey"] is { Length: > 10 } k
+                                       ? k
+                                       : "SkiRental_DevKey_ChangeInProduction_32chars!";
+            opts.Issuer            = s["Issuer"]   ?? "https://skirent.app";
+            opts.Audience          = s["Audience"] ?? "SkiRental.App";
+            opts.ExpirationMinutes = int.TryParse(s["ExpirationMinutes"], out var e) ? e : 60;
+            opts.ClockSkewMinutes  = int.TryParse(s["ClockSkewMinutes"],  out var c) ? c : 5;
         });
 
-        // ── HTTP Clients ───────────────────────────────────────────────────
+        // ── PayU ──────────────────────────────────────────────────────────────
+        builder.Services.Configure<PayUOptions>(config.GetSection(PayUOptions.SectionName));
+
+        // ── HTTP clients ──────────────────────────────────────────────────────
         builder.Services.AddHttpClient<PayUPaymentProvider>(client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-        });
+            client.Timeout = TimeSpan.FromSeconds(30));
 
         builder.Services.AddHttpClient<WeatherService>(client =>
         {
@@ -67,41 +77,53 @@ public static class MauiProgram
             client.Timeout = TimeSpan.FromSeconds(10);
         });
 
-        // ── Repositories ───────────────────────────────────────────────────
-        builder.Services.AddScoped<IEquipmentRepository, EfEquipmentRepository>();
-        builder.Services.AddScoped<IRentalRepository,    EfRentalRepository>();
-
-        // ── Domain Services ────────────────────────────────────────────────
-        builder.Services.AddScoped<EquipmentMathService>();
-        builder.Services.AddScoped<BookingService>();
-        builder.Services.AddScoped<AnalyticsService>();
-
-        // ── Payment ────────────────────────────────────────────────────────
+        // ── Payment provider ──────────────────────────────────────────────────
         builder.Services.AddScoped<IPaymentProvider, PayUPaymentProvider>();
 
-        // ── MAUI-specific services ─────────────────────────────────────────
+        // ── App-layer singletons ──────────────────────────────────────────────
+        builder.Services.AddSingleton<JwtTokenService>();
+
+        // Register BOTH concrete and interface — same instance, different lookup keys.
+        // Pages inject: @inject AuthenticationService Auth
+        // QrScannerPanel injects: @inject IAuthenticationService Auth
+        builder.Services.AddSingleton<AuthenticationService>();
+        builder.Services.AddSingleton<IAuthenticationService>(
+            sp => sp.GetRequiredService<AuthenticationService>());
+
         builder.Services.AddSingleton<QrNfcBridgeService>();
         builder.Services.AddSingleton<WeatherService>();
         builder.Services.AddSingleton<ProfilePictureService>();
-        builder.Services.AddSingleton<AuthenticationService>();
-        
         builder.Services.AddSingleton<MainPage>();
         builder.Services.AddSingleton<App>();
 
         var app = builder.Build();
 
-        // Ensure the SQLite schema exists (migrations) before any pages query data
-        // e.g. Analytics tab. In MAUI we can't easily await here, so run and log failures.
+        // ── EF Migrations — log crash to file (no window = no UI for errors) ──
+        var logPath = Path.Combine(FileSystem.AppDataDirectory, "startup.log");
         try
         {
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<SkiRentalDbContext>();
+            
+            // Check if database exists and has tables
+            var canConnect = db.Database.CanConnect();
+            Console.WriteLine($"Can connect to DB: {canConnect}");
+            
+            if (canConnect)
+            {
+                var tables = db.Model.GetEntityTypes().Select(t => t.GetTableName()).ToList();
+                Console.WriteLine($"Existing tables: {string.Join(", ", tables)}");
+            }
+            
             db.Database.Migrate();
+            File.WriteAllText(logPath, $"[{DateTime.Now}] OK. DB={localDbPath}");
         }
         catch (Exception ex)
         {
-            var logger = app.Services.GetService<ILoggerFactory>()?.CreateLogger("Startup");
-            logger?.LogError(ex, "Failed to migrate SQLite database on startup.");
+            File.WriteAllText(logPath, $"[{DateTime.Now}] CRASH:\n{ex}");
+            app.Services.GetService<ILoggerFactory>()
+               ?.CreateLogger("Startup")
+               .LogError(ex, "Migration failed. DB={Path}", localDbPath);
         }
 
         return app;

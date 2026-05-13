@@ -440,6 +440,25 @@ var report = await analyticsService.CalculateUtilizationRateAsync(
 
 ## 🗄️ Konfiguracja bazy danych <a name="baza-danych"></a>
 
+### Rozwiązywanie problemów z bazą danych
+
+**Problem:** "Błąd bazy danych. Spróbuj ponownie." przy logowaniu
+
+**Przyczyny i rozwiązania:**
+1. **Brak pliku bazy danych** - Aplikacja kopiuje bazę danych z `SkiRental.Logic/SkiRental.db` do katalogu danych aplikacji
+2. **Brak tabel w bazie danych** - Migracje EF Core są automatycznie aplikowane przy starcie
+3. **Błędna ścieżka** - Używana jest ścieżka bezwzględna do pliku bazy danych
+
+**Debugowanie:**
+- Dodano logowanie szczegółowe błędów bazy danych w `AuthenticationService.cs`
+- Dodano logowanie ścieżki bazy danych w `MauiProgram.cs`
+- Aplikacja tworzy kopię lokalną bazy danych przy każdym uruchomieniu
+
+**Kroki naprawy:**
+1. Usuń lokalny plik bazy danych: `rm SkiRental.db`
+2. Odbuduj i uruchom aplikację: `dotnet build && dotnet run`
+3. Sprawdź logi w konsoli aplikacji
+
 ### SQLite (mobilny / offline)
 
 ```csharp

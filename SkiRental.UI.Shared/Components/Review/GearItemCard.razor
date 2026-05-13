@@ -1,0 +1,127 @@
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+
+<div class="gear-item-card" data-category="@Category">
+    <div class="card-header">
+        <h3 class="category-name">@Category</h3>
+        <div class="match-badge @MatchStatus.ToString().ToLower()">
+            @GetMatchStatusText(MatchStatus)
+        </div>
+    </div>
+
+    <div class="equipment-content">
+        <div class="equipment-image">
+            @if (!string.IsNullOrEmpty(Item.ImagePath))
+            {
+                <img src="@Item.ImagePath" alt="@Item.Brand @Item.Model" />
+            }
+            else
+            {
+                <div class="placeholder-image">@GetCategoryIcon(Category)</div>
+            }
+        </div>
+
+        <div class="equipment-details">
+            <h4 class="equipment-name">@Item.Brand @Item.Model</h4>
+            
+            <div class="specs">
+                <span class="size-spec">
+                    @Item.Size@(GetUnit(Category))
+                </span>
+                @if (Item.Stiffness.HasValue)
+                {
+                    <span class="stiffness-spec">
+                        Flex @Item.Stiffness
+                    </span>
+                }
+            </div>
+
+            <div class="daily-rate">
+                @Item.DailyRate PLN/day
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(AlgorithmNote))
+    {
+        <div class="algorithm-note">
+            <div class="note-header">
+                <span class="note-icon">💡</span>
+                <button class="note-toggle" @onclick="ToggleNoteExpanded">
+                    @(IsExpanded ? "▼" : "▶")
+                </button>
+            </div>
+            @if (IsExpanded)
+            {
+                <div class="note-content">
+                    @AlgorithmNote
+                </div>
+            }
+        </div>
+    }
+
+    @if (CanSwap)
+    {
+        <div class="card-actions">
+            <button class="btn-secondary swap-btn" @onclick="OnSwapRequested">
+                Swap Item
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Equipment Item { get; set; } = null!;
+
+    [Parameter]
+    public EquipmentCategory Category { get; set; }
+
+    [Parameter]
+    public MatchStatus MatchStatus { get; set; }
+
+    [Parameter]
+    public decimal IdealSize { get; set; }
+
+    [Parameter]
+    public string AlgorithmNote { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool CanSwap { get; set; } = true;
+
+    [Parameter]
+    public EventCallback<EquipmentCategory> OnSwapRequested { get; set; }
+
+    private bool IsExpanded { get; set; }
+
+    private void ToggleNoteExpanded()
+    {
+        IsExpanded = !IsExpanded;
+    }
+
+    private static string GetMatchStatusText(MatchStatus status) => status switch
+    {
+        MatchStatus.ExactMatch => "Perfect Fit",
+        MatchStatus.FallbackMatch => "Close Match",
+        MatchStatus.NoMatch => "No Match",
+        _ => "Unknown"
+    };
+
+    private static string GetCategoryIcon(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "🎿",
+        EquipmentCategory.Poles => "🏂",
+        EquipmentCategory.Boots => "🥾",
+        EquipmentCategory.Gloves => "🧤",
+        EquipmentCategory.Helmet => "⛑️",
+        _ => "📦"
+    };
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+}

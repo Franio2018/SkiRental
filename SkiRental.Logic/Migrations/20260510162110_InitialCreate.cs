@@ -54,12 +54,47 @@ namespace SkiRental.Logic.Migrations
                     ShoeSize = table.Column<int>(type: "INTEGER", nullable: false),
                     SkillLevel = table.Column<string>(type: "TEXT", nullable: false),
                     PreferredStyle = table.Column<string>(type: "TEXT", nullable: false),
+                    DateOfBirth = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    Address = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
+                    City = table.Column<string>(type: "TEXT", maxLength: 100, nullable: true),
+                    ProfileImagePath = table.Column<string>(type: "TEXT", maxLength: 500, nullable: true),
+                    FavoriteRoutes = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: true),
+                    PreferenceNotes = table.Column<string>(type: "TEXT", maxLength: 2000, nullable: true),
+                    EmailNotificationsEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    SmsNotificationsEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_UserProfiles", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AppUsers",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    Username = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    PasswordHash = table.Column<string>(type: "TEXT", maxLength: 256, nullable: false),
+                    Role = table.Column<string>(type: "TEXT", maxLength: 20, nullable: false),
+                    UserProfileId = table.Column<int>(type: "INTEGER", nullable: true),
+                    IsLocked = table.Column<bool>(type: "INTEGER", nullable: false),
+                    FailedLoginAttempts = table.Column<int>(type: "INTEGER", nullable: false),
+                    LockoutEnd = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    LastLoginAt = table.Column<DateTime>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AppUsers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AppUsers_UserProfiles_UserProfileId",
+                        column: x => x.UserProfileId,
+                        principalTable: "UserProfiles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateTable(
@@ -148,6 +183,16 @@ namespace SkiRental.Logic.Migrations
                 });
 
             migrationBuilder.InsertData(
+                table: "AppUsers",
+                columns: new[] { "Id", "CreatedAt", "FailedLoginAttempts", "IsLocked", "LastLoginAt", "LockoutEnd", "PasswordHash", "Role", "UserProfileId", "Username" },
+                values: new object[,]
+                {
+                    { 1, new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc), 0, false, null, null, "$2a$12$JYsSZdsvjG.TKqmgoBpIve9h01tQ9Jo35S1P/wkr30Ba5q/X94Xc6", "Owner", null, "owner" },
+                    { 2, new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc), 0, false, null, null, "$2a$12$5N0AOyEPqcfjrnH5K3CuMu9wyYueUO/jv0KO1JYZ0AN/k.PV6bk/K", "Worker", null, "worker" },
+                    { 3, new DateTime(2024, 12, 1, 0, 0, 0, 0, DateTimeKind.Utc), 0, false, null, null, "$2a$12$0HULvmchAwUoYvENSIbWiOgNlGCxeoKtb50QaikDU7qe5ZKHbrfVG", "Customer", null, "user" }
+                });
+
+            migrationBuilder.InsertData(
                 table: "Equipment",
                 columns: new[] { "Id", "Brand", "Category", "CompatibleStyle", "DailyRate", "ImagePath", "LastMaintenanceDate", "MaintenanceNotes", "Model", "SerialNumber", "Size", "Status", "Stiffness", "TotalRentalDays", "YearOfProduction" },
                 values: new object[,]
@@ -158,6 +203,18 @@ namespace SkiRental.Logic.Migrations
                     { 4, "Leki", "Poles", "Classic", 20m, null, null, null, "Tour Stick Vario", "LEKI-CL-001", 150m, "Available", null, 0, 2023 },
                     { 5, "Leki", "Poles", "Skate", 20m, null, null, null, "CC 450 Vario", "LEKI-SK-001", 155m, "Available", null, 0, 2023 }
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppUsers_Username",
+                table: "AppUsers",
+                column: "Username",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AppUsers_UserProfileId",
+                table: "AppUsers",
+                column: "UserProfileId",
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Equipment_SerialNumber",
@@ -184,7 +241,8 @@ namespace SkiRental.Logic.Migrations
                 name: "IX_Rentals_QrCode",
                 table: "Rentals",
                 column: "QrCode",
-                unique: true);
+                unique: true,
+                filter: "[QrCode] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserProfiles_Email",
@@ -195,6 +253,9 @@ namespace SkiRental.Logic.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AppUsers");
+
             migrationBuilder.DropTable(
                 name: "Payments");
 

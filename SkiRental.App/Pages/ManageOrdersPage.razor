@@ -1,0 +1,490 @@
+@page "/manage-orders"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Interfaces
+@using Microsoft.AspNetCore.Components
+
+@inject IRentalRepository RentalRepository
+@inject IEquipmentRepository EquipmentRepository
+@inject INotificationService NotificationService
+@inject NavigationManager Navigation
+
+<PageTitle>Manage Orders - SkiRental</PageTitle>
+
+<div class="manage-orders-page">
+    <div class="page-header">
+        <h1>Manage Orders</h1>
+        <p class="subtitle">View and manage all customer rental orders</p>
+    </div>
+
+    <div class="filters-section">
+        <div class="filter-controls">
+            <div class="filter-group">
+                <label for="status-filter">Status Filter:</label>
+                <select id="status-filter" @bind="FilterStatus" class="filter-select">
+                    <option value="">All Statuses</option>
+                    @foreach (RentalStatus status in Enum.GetValues<RentalStatus>())
+                    {
+                        <option value="@status">@status</option>
+                    }
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="search-query">Search:</label>
+                <input type="text" 
+                       id="search-query"
+                       @bind="SearchQuery" 
+                       placeholder="Customer name, QR code, or rental ID..."
+                       class="search-input" />
+            </div>
+
+            <button class="btn-secondary" @onclick="RefreshData">
+                🔄 Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading orders...</p>
+        </div>
+    }
+    else if (_filteredRentals.Any())
+    {
+        <div class="orders-table-container">
+            <table class="orders-table">
+                <thead>
+                    <tr>
+                        <th @onclick="SortById">Rental ID @GetSortIcon("Id")</th>
+                        <th @onclick="SortByCustomerName">Customer @GetSortIcon("CustomerName")</th>
+                        <th @onclick="SortByStartTime">Start Time @GetSortIcon("StartTime")</th>
+                        <th @onclick="SortByEndTime">End Time @GetSortIcon("EndTime")</th>
+                        <th @onclick="SortByStatus">Status @GetSortIcon("Status")</th>
+                        <th @onclick="SortByTotalAmount">Amount @GetSortIcon("TotalAmount")</th>
+                        <th @onclick="SortByEquipmentCount">Equipment @GetSortIcon("EquipmentCount")</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var rental in _filteredRentals)
+                    {
+                        <tr class="order-row @(rental.Status.ToString().ToLower())" @onclick="() => SelectRental(rental)">
+                            <td>#@rental.Id</td>
+                            <td>Customer @(rental.CustomerProfileId)</td>
+                            <td>@rental.StartTime:dd.MM.yyyy HH:mm</td>
+                            <td>@rental.EndTime:dd.MM.yyyy HH:mm</td>
+                            <td>
+                                <span class="status-badge @rental.Status.ToString().ToLower()">
+                                    @rental.Status
+                                </span>
+                            </td>
+                            <td>@rental.TotalAmount PLN</td>
+                            <td>@rental.RentalEquipments.Count items</td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button class="btn-sm btn-primary" @onclick="() => SelectRental(rental)">
+                                        View
+                                    </button>
+                                    @if (rental.Status == RentalStatus.Pending || rental.Status == RentalStatus.Active)
+                                    {
+                                        <button class="btn-sm btn-secondary" @onclick="() => OpenOverrideDrawer(rental)">
+                                            Override
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="no-results">
+            <div class="no-results-icon">📋</div>
+            <h3>No orders found</h3>
+            <p>Try adjusting your filters or search criteria.</p>
+        </div>
+    }
+</div>
+
+<!-- Rental Details Modal -->
+@if (_selectedRental != null)
+{
+    <div class="modal-overlay" @onclick="CloseDetailsModal">
+        <div class="modal-content rental-details" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>Rental Details #@_selectedRental.Id</h2>
+                <button class="close-btn" @onclick="CloseDetailsModal">×</button>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-section">
+                    <h3>Customer Information</h3>
+                    <div class="detail-row">
+                        <span>Customer ID:</span>
+                        <strong>@_selectedRental.CustomerProfileId</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>Status:</span>
+                        <span class="status-badge @_selectedRental.Status.ToString().ToLower()">
+                            @_selectedRental.Status
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Payment Status:</span>
+                        <span class="payment-status-badge @_selectedRental.PaymentStatus.ToString().ToLower()">
+                            @_selectedRental.PaymentStatus
+                        </span>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Rental Period</h3>
+                    <div class="detail-row">
+                        <span>From:</span>
+                        <strong>@_selectedRental.StartTime:dd.MM.yyyy HH:mm</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>To:</span>
+                        <strong>@_selectedRental.EndTime:dd.MM.yyyy HH:mm</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>Duration:</span>
+                        <strong>@GetDurationText(_selectedRental)</strong>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Equipment</h3>
+                    <div class="equipment-list">
+                        @foreach (var rentalEquipment in _selectedRental.RentalEquipments)
+                        {
+                            <div class="equipment-item">
+                                <span class="item-name">@rentalEquipment.Equipment.Brand @rentalEquipment.Equipment.Model</span>
+                                <span class="item-specs">@rentalEquipment.Equipment.Size@(GetUnit(rentalEquipment.Equipment.Category))</span>
+                                <span class="item-rate">@rentalEquipment.Equipment.DailyRate PLN/day</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Financial</h3>
+                    <div class="detail-row">
+                        <span>Total Amount:</span>
+                        <strong class="amount">@_selectedRental.TotalAmount PLN</strong>
+                    </div>
+                    <div class="detail-row">
+                        <span>QR Code:</span>
+                        <strong>@_selectedRental.QrCode</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-secondary" @onclick="CloseDetailsModal">
+                    Close
+                </button>
+                @if (_selectedRental.Status == RentalStatus.Pending || _selectedRental.Status == RentalStatus.Active)
+                {
+                    <button class="btn-primary" @onclick="() => OpenOverrideDrawer(_selectedRental)">
+                        🔄 Override Equipment
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Override Drawer -->
+@if (_isOverrideDrawerOpen && _selectedRental != null)
+{
+    <div class="drawer-overlay" @onclick="CloseOverrideDrawer">
+        <div class="override-drawer" @onclick:stopPropagation>
+            <div class="drawer-header">
+                <h3>Override Equipment Assignment</h3>
+                <button class="close-btn" @onclick="CloseOverrideDrawer">×</button>
+            </div>
+
+            <div class="override-content">
+                <div class="override-info">
+                    <h4>Rental #@_selectedRental.Id</h4>
+                    <p>Select new equipment for each category. This will notify the customer of the change.</p>
+                </div>
+
+                @foreach (var rentalEquipment in _selectedRental.RentalEquipments)
+                {
+                    var category = rentalEquipment.Equipment.Category;
+                    var currentEquipment = rentalEquipment.Equipment;
+                    
+                    <div class="override-category">
+                        <h5>@category</h5>
+                        <div class="current-item">
+                            <span class="label">Current:</span>
+                            <span class="item">@currentEquipment.Brand @currentEquipment.Model (@currentEquipment.Size@(GetUnit(category)))</span>
+                        </div>
+                        
+                        <div class="override-controls">
+                            <label for="override-@category">New Equipment:</label>
+                            <select id="override-@category" @bind="_overrideSelections[category]" class="equipment-select">
+                                <option value="">Select new equipment...</option>
+                                @foreach (var equipment in _availableEquipmentByCategory.GetValueOrDefault(category, new List<Equipment>()))
+                                {
+                                    <option value="@equipment.Id">
+                                        @equipment.Brand @equipment.Model (@equipment.Size@(GetUnit(category))) - @equipment.DailyRate PLN/day
+                                    </option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+
+                <div class="override-reason">
+                    <label for="override-reason">Override Reason:</label>
+                    <textarea id="override-reason" 
+                              @bind="_overrideReason" 
+                              placeholder="Explain why this override is necessary..."
+                              rows="3"
+                              class="reason-textarea"></textarea>
+                </div>
+            </div>
+
+            <div class="drawer-actions">
+                <button class="btn-secondary" @onclick="CloseOverrideDrawer">
+                    Cancel
+                </button>
+                <button class="btn-primary" @onclick="ProcessOverride" disabled="@(!CanProcessOverride)">
+                    Process Override
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Rental> _allRentals = new();
+    private IEnumerable<Rental> _filteredRentals = new List<Rental>();
+    private Rental? _selectedRental;
+    private bool _isLoading = true;
+    private RentalStatus? FilterStatus;
+    private string SearchQuery = string.Empty;
+    private string SortColumn = "Id";
+    private bool SortAscending = true;
+
+    // Override drawer state
+    private bool _isOverrideDrawerOpen;
+    private Dictionary<EquipmentCategory, int> _overrideSelections = new();
+    private Dictionary<EquipmentCategory, List<Equipment>> _availableEquipmentByCategory = new();
+    private string _overrideReason = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRentalsAsync();
+    }
+
+    private async Task LoadRentalsAsync()
+    {
+        _isLoading = true;
+        
+        try
+        {
+            // Get all rentals - in real implementation, this would be filtered by date range
+            _allRentals = (await RentalRepository.GetAllRentalsAsync(
+                DateTime.Now.AddMonths(-1), 
+                DateTime.Now.AddMonths(1)))
+                .ToList();
+            
+            ApplyFiltersAndSort();
+        }
+        catch (Exception ex)
+        {
+            // TODO: Show error message
+            Console.WriteLine($"Error loading rentals: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ApplyFiltersAndSort()
+    {
+        _filteredRentals = _allRentals.AsEnumerable();
+
+        // Apply status filter
+        if (FilterStatus.HasValue)
+        {
+            _filteredRentals = _filteredRentals.Where(r => r.Status == FilterStatus.Value);
+        }
+
+        // Apply search filter
+        if (!string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            _filteredRentals = _filteredRentals.Where(r => 
+                r.Id.ToString().Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                r.QrCode.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Apply sorting
+        _filteredRentals = SortColumn switch
+        {
+            "Id" => SortAscending ? _filteredRentals.OrderBy(r => r.Id) : _filteredRentals.OrderByDescending(r => r.Id),
+            "StartTime" => SortAscending ? _filteredRentals.OrderBy(r => r.StartTime) : _filteredRentals.OrderByDescending(r => r.StartTime),
+            "EndTime" => SortAscending ? _filteredRentals.OrderBy(r => r.EndTime) : _filteredRentals.OrderByDescending(r => r.EndTime),
+            "Status" => SortAscending ? _filteredRentals.OrderBy(r => r.Status) : _filteredRentals.OrderByDescending(r => r.Status),
+            "TotalAmount" => SortAscending ? _filteredRentals.OrderBy(r => r.TotalAmount) : _filteredRentals.OrderByDescending(r => r.TotalAmount),
+            "EquipmentCount" => SortAscending ? _filteredRentals.OrderBy(r => r.RentalEquipments.Count) : _filteredRentals.OrderByDescending(r => r.RentalEquipments.Count),
+            _ => _filteredRentals
+        };
+
+        _filteredRentals = _filteredRentals.ToList();
+    }
+
+    private void SortBy(string column)
+    {
+        if (SortColumn == column)
+        {
+            SortAscending = !SortAscending;
+        }
+        else
+        {
+            SortColumn = column;
+            SortAscending = true;
+        }
+        
+        ApplyFiltersAndSort();
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (SortColumn != column) return "⇅";
+        return SortAscending ? "↑" : "↓";
+    }
+
+    private void SortById() => SortBy("Id");
+    private void SortByCustomerName() => SortBy("CustomerName");
+    private void SortByStartTime() => SortBy("StartTime");
+    private void SortByEndTime() => SortBy("EndTime");
+    private void SortByStatus() => SortBy("Status");
+    private void SortByTotalAmount() => SortBy("TotalAmount");
+    private void SortByEquipmentCount() => SortBy("EquipmentCount");
+
+    private void SelectRental(Rental rental)
+    {
+        _selectedRental = rental;
+    }
+
+    private void CloseDetailsModal()
+    {
+        _selectedRental = null;
+    }
+
+    private async Task OpenOverrideDrawer(Rental rental)
+    {
+        _selectedRental = rental;
+        _isOverrideDrawerOpen = true;
+        _overrideSelections.Clear();
+        _overrideReason = string.Empty;
+
+        // Load available equipment for each category
+        await LoadAvailableEquipment(rental);
+    }
+
+    private async Task LoadAvailableEquipment(Rental rental)
+    {
+        _availableEquipmentByCategory.Clear();
+
+        foreach (var rentalEquipment in rental.RentalEquipments)
+        {
+            var category = rentalEquipment.Equipment.Category;
+            
+            try
+            {
+                // Get available equipment for this category
+                var available = await EquipmentRepository.GetAllAsync();
+                _availableEquipmentByCategory[category] = available
+                    .Where(e => e.Category == category && e.Status == EquipmentStatus.Available)
+                    .OrderBy(e => e.Brand)
+                    .ThenBy(e => e.Model)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading equipment for {category}: {ex.Message}");
+                _availableEquipmentByCategory[category] = new List<Equipment>();
+            }
+        }
+    }
+
+    private void CloseOverrideDrawer()
+    {
+        _isOverrideDrawerOpen = false;
+        _overrideSelections.Clear();
+        _overrideReason = string.Empty;
+    }
+
+    private bool CanProcessOverride => 
+        _selectedRental != null && 
+        !string.IsNullOrWhiteSpace(_overrideReason) &&
+        _overrideSelections.Values.Any(id => id > 0);
+
+    private async Task ProcessOverride()
+    {
+        if (_selectedRental == null || !CanProcessOverride) return;
+
+        try
+        {
+            // TODO: Implement actual override logic
+            // This would update the rental equipment assignments and send notifications
+            
+            var notification = new NotificationPayload
+            {
+                Subject = "Equipment Assignment Updated",
+                Body = $"Your rental equipment has been updated by staff. Reason: {_overrideReason}",
+                SmsShortMessage = "SkiRental: Your equipment assignment has been updated."
+            };
+
+            // Send notification (mock - would get customer contact info)
+            await NotificationService.SendEmailAsync("customer@example.com", notification);
+
+            CloseOverrideDrawer();
+            await LoadRentalsAsync(); // Refresh data
+        }
+        catch (Exception ex)
+        {
+            // TODO: Show error message
+            Console.WriteLine($"Error processing override: {ex.Message}");
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadRentalsAsync();
+    }
+
+    private static string GetDurationText(Rental rental)
+    {
+        var duration = rental.EndTime - rental.StartTime;
+        var days = duration.Days;
+        var hours = duration.Hours;
+        
+        if (days > 0)
+            return $"{days} day{(days != 1 ? "s" : "")} {hours} hour{(hours != 1 ? "s" : "")}";
+        
+        return $"{hours} hour{(hours != 1 ? "s" : "")}";
+    }
+
+    private static string GetUnit(EquipmentCategory category) => category switch
+    {
+        EquipmentCategory.Skis => "cm",
+        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Boots => " EU",
+        _ => ""
+    };
+}
+}

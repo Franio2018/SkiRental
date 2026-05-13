@@ -1,0 +1,147 @@
+@page "/recommendation-loading"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using SkiRental.Logic.Interfaces
+@using Microsoft.AspNetCore.Components
+
+@inject IRecommendationOrchestrator RecommendationOrchestrator
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Calculating Recommendations - SkiRental</PageTitle>
+
+<div class="recommendation-loading-page">
+    <div class="loading-container">
+        @if (_isLoading)
+        {
+            <div class="loading-animation">
+                <div class="ski-loader">
+                    <div class="ski-icon">🎿</div>
+                    <div class="track"></div>
+                </div>
+                <h2>Finding your perfect gear...</h2>
+                <p class="loading-subtitle">Our Intelligent Assistant is analyzing your profile</p>
+            </div>
+
+            <div class="algorithm-explanation">
+                <h3>How we're matching your gear</h3>
+                <div class="explanation-text">
+                    @if (!string.IsNullOrEmpty(_currentExplanation))
+                    {
+                        @_currentExplanation
+                    }
+                    else
+                    {
+                        <div class="placeholder-dots">
+                            <span>.</span><span>.</span><span>.</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (_result != null)
+        {
+            <div class="result-ready">
+                <div class="success-icon">✅</div>
+                <h2>Recommendations Ready!</h2>
+                <p>We've found the perfect gear for your skiing adventure.</p>
+            </div>
+        }
+        else if (_errorMessage != null)
+        {
+            <div class="error-state">
+                <div class="error-icon">❌</div>
+                <h2>Something went wrong</h2>
+                <p>@_errorMessage</p>
+                <button class="btn-secondary" @onclick="GoBack">Try Again</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EquipmentSelectionParameters? Parameters { get; set; }
+
+    private bool _isLoading = true;
+    private RecommendationResult? _result;
+    private string? _errorMessage;
+    private string _currentExplanation = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Parameters == null)
+        {
+            _errorMessage = "Missing profile parameters. Please start over.";
+            _isLoading = false;
+            return;
+        }
+
+        await Task.Delay(500); // Brief pause for UX
+
+        try
+        {
+            // Start streaming the algorithm explanation
+            _ = StreamExplanationAsync();
+
+            // Calculate recommendations
+            _result = await RecommendationOrchestrator.RecommendAsync(Parameters);
+
+            if (_result.Status == RecommendationStatus.NoMatch)
+            {
+                // Navigate to no-match page
+                Navigation.NavigateTo($"/no-match?data={Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(Parameters))}");
+                return;
+            }
+
+            _isLoading = false;
+
+            // Auto-navigate after a short delay
+            await Task.Delay(2000);
+            Navigation.NavigateTo($"/gear-review?data={Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(_result))}");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            _isLoading = false;
+        }
+    }
+
+    private async Task StreamExplanationAsync()
+    {
+        if (Parameters == null) return;
+
+        var explanation = BuildStreamingExplanation(Parameters);
+        var words = explanation.Split(' ');
+
+        for (int i = 0; i < words.Length; i++)
+        {
+            _currentExplanation += words[i] + " ";
+            StateHasChanged();
+            await Task.Delay(50); // Typing effect
+        }
+    }
+
+    private static string BuildStreamingExplanation(EquipmentSelectionParameters parameters)
+    {
+        var style = parameters.Style == SkiStyle.Classic ? "Classic" : "Skate";
+        var bmiStatus = parameters.IsBmiNormal ? "normal" : 
+                       parameters.IsOverweight ? "higher" : "lower";
+
+        return $"Analyzing your {style} skiing profile... " +
+               $"Based on your {parameters.Height}cm height and {parameters.Weight}kg weight, " +
+               $"we're calculating optimal ski length... " +
+               $"Your BMI of {parameters.Bmi} is {bmiStatus} than average, " +
+               $"so we'll adjust accordingly... " +
+               $"Determining ideal pole length for {style} technique... " +
+               $"Selecting appropriate stiffness for your {parameters.SkillLevel} skill level... " +
+               $"Checking available inventory in your size range... " +
+               $"Scoring options by fit and usage... " +
+               $"Almost done...";
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/booking");
+    }
+}

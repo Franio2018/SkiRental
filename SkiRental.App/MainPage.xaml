@@ -76,30 +76,5 @@
             </Grid>
         </Grid>
 
-        <!--
-            ═══════════════════════════════════════════════════════════════════
-            WARSTWA 3: Dolna belka nawigacyjna (MAUI Native)
-            ═══════════════════════════════════════════════════════════════════
-        -->
-        <Grid
-            Grid.Row="1"
-            BackgroundColor="{DynamicResource NavBarBackground}"
-            ColumnDefinitions="*,*,*,*"
-            Padding="0,8">
-
-            <Button Grid.Column="0" Text="🏠&#10;Start"
-                    Command="{Binding NavigateHomeCommand}"
-                    Style="{StaticResource NavButtonStyle}" />
-            <Button Grid.Column="1" Text="🎿&#10;Wypożycz"
-                    Command="{Binding NavigateBookingCommand}"
-                    Style="{StaticResource NavButtonStyle}" />
-            <Button Grid.Column="2" x:Name="ScannerButton" Text="📷&#10;Skaner"
-                    Clicked="OpenScannerAsync"
-                    Style="{StaticResource NavButtonStyle}" />
-            <Button Grid.Column="3" x:Name="AnalyticsButton" Text="📊&#10;Analityka"
-                    Command="{Binding NavigateAnalyticsCommand}"
-                    Style="{StaticResource NavButtonStyle}" />
-        </Grid>
-
     </Grid>
 </ContentPage>

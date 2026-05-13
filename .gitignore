@@ -55,3 +55,4 @@ TestResults/
 
 # Blazor
 .playwright/
+/.windsurf/cascade_rules.md

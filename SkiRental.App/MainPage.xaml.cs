@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.WebView.Maui;
 using ZXing.Net.Maui;
 using ZXing.Net.Maui.Controls;
 using SkiRental.App.Services;
+using SkiRental.Domain.Models;
 using Microsoft.JSInterop;
 
 namespace SkiRental.App;
@@ -82,7 +83,7 @@ public partial class MainPage : ContentPage
     private async void OpenScannerAsync(object? sender, EventArgs e)
     {
         // Check if user is authenticated and has worker role
-        if (!_authService.IsAuthenticated || _authService.CurrentRole != UserRole.Worker)
+        if (!_authService.IsAuthenticated || _authService.CurrentRole != AppRole.Worker)
         {
             await DisplayAlert("Brak uprawnień",
                 "Tylko pracownicy mogą używać skanera QR.", "OK");
@@ -125,7 +126,7 @@ public partial class MainPage : ContentPage
     private async Task NavigateToWithPermissionAsync(string url)
     {
         // Check if user is authenticated and has worker role for analytics
-        if (url == "/analytics" && (!_authService.IsAuthenticated || _authService.CurrentRole != UserRole.Worker))
+        if (url == "/analytics" && (!_authService.IsAuthenticated || _authService.CurrentRole != AppRole.Worker))
         {
             await DisplayAlert("Brak uprawnień",
                 "Tylko pracownicy mogą przeglądać analitykę.", "OK");
@@ -141,7 +142,7 @@ public partial class MainPage : ContentPage
         var scannerButton = this.FindByName<Button>("ScannerButton");
         var analyticsButton = this.FindByName<Button>("AnalyticsButton");
 
-        bool isWorker = _authService.IsAuthenticated && _authService.CurrentRole == UserRole.Worker;
+        bool isWorker = _authService.IsAuthenticated && _authService.CurrentRole == AppRole.Worker;
 
         if (scannerButton != null)
             scannerButton.IsVisible = isWorker;

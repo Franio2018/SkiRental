@@ -1,0 +1,75 @@
+@using SkiRental.Domain.Enums
+
+<div class="payment-method-selector">
+    <h3>Choose Payment Method</h3>
+    
+    <div class="method-cards">
+        <div class="method-card @(Selected == PaymentMethod.Spot ? "selected" : "")"
+             @onclick="() => OnMethodSelected?.Invoke(PaymentMethod.Spot)">
+            <div class="method-icon">💵</div>
+            <div class="method-content">
+                <h4>Pay on the Spot</h4>
+                <p>Pay cash or card when you pick up your equipment</p>
+                <div class="method-features">
+                    <span class="feature">✓ No online payment required</span>
+                    <span class="feature">✓ Pay at pickup</span>
+                    <span class="feature">✓ Cash accepted</span>
+                </div>
+            </div>
+            <div class="method-indicator @(Selected == PaymentMethod.Spot ? "selected" : "")">
+                <div class="indicator-dot"></div>
+            </div>
+        </div>
+
+        <div class="method-card @(Selected == PaymentMethod.Online ? "selected" : "") @(OnlineDisabled ? "disabled" : "")"
+             @onclick="() => !OnlineDisabled ? OnMethodSelected?.Invoke(PaymentMethod.Online) : null">
+            @if (OnlineDisabled)
+            {
+                <div class="disabled-overlay">
+                    <div class="disabled-tooltip">
+                        @OnlineDisabledReason
+                    </div>
+                </div>
+            }
+            
+            <div class="method-icon">💳</div>
+            <div class="method-content">
+                <h4>Pay Online (PayU)</h4>
+                <p>Secure online payment with card or BLIK</p>
+                <div class="method-features">
+                    <span class="feature">✓ Instant confirmation</span>
+                    <span class="feature">✓ Secure payment</span>
+                    <span class="feature">✓ Card & BLIK support</span>
+                </div>
+            </div>
+            <div class="method-indicator @(Selected == PaymentMethod.Online ? "selected" : "")">
+                <div class="indicator-dot"></div>
+            </div>
+        </div>
+    </div>
+
+    @if (OnlineDisabled && Selected == PaymentMethod.Online)
+    {
+        <div class="warning-message">
+            <span class="warning-icon">⚠️</span>
+            <div>
+                <strong>Online payment unavailable</strong>
+                <p>@OnlineDisabledReason. Please choose "Pay on the Spot" or check your internet connection.</p>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public PaymentMethod? Selected { get; set; }
+
+    [Parameter]
+    public bool OnlineDisabled { get; set; }
+
+    [Parameter]
+    public string? OnlineDisabledReason { get; set; }
+
+    [Parameter]
+    public EventCallback<PaymentMethod> OnMethodSelected { get; set; }
+}

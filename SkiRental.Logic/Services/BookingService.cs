@@ -6,13 +6,18 @@ using SkiRental.Logic.Interfaces;
 namespace SkiRental.Logic.Services;
 
 /// <summary>
-/// Zarządza cyklem życia wypożyczenia: tworzenie → preautoryzacja → aktywacja → zwrot.
+/// Zarządza cyklem życia wypożyczenia:
+///   Pending (reserved) → Active (equipment picked up) → Completed (returned)
+///
+/// FIX vs original: equipment status is set to Reserved on booking, then Rented
+/// only on activation (actual pickup). This prevents phantom locks when payment
+/// fails or customer never shows.
 /// </summary>
 public sealed class BookingService
 {
-    private readonly IRentalRepository   _rentalRepo;
+    private readonly IRentalRepository    _rentalRepo;
     private readonly IEquipmentRepository _equipmentRepo;
-    private readonly IPaymentProvider    _paymentProvider;
+    private readonly IPaymentProvider     _paymentProvider;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -28,11 +33,14 @@ public sealed class BookingService
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Tworzenie rezerwacji
+    // 1. Create booking (Pending)
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Tworzy nową rezerwację, rezerwuje sprzęt i (opcjonalnie) preautoryzuje płatność.
+    /// Creates a reservation, marks equipment as Reserved (not Rented yet)
+    /// and optionally takes BLIK payment upfront.
+    /// Equipment only moves to Rented when <see cref="ActivateRentalAsync"/> is called
+    /// (i.e. when the worker hands over the equipment to the customer).
     /// </summary>
     public async Task<BookingResult> CreateBookingAsync(
         CreateBookingRequest request,
@@ -40,23 +48,23 @@ public sealed class BookingService
     {
         _logger.LogInformation("Creating booking for customer {CustomerId}", request.CustomerProfileId);
 
-        // 1. Sprawdź dostępność każdego sprzętu
+        // 1. Validate availability
         foreach (var equipmentId in request.EquipmentIds)
         {
             var equipment = await _equipmentRepo.GetByIdAsync(equipmentId, ct)
                 ?? throw new InvalidOperationException($"Sprzęt {equipmentId} nie istnieje.");
 
             if (equipment.Status != EquipmentStatus.Available)
-                return BookingResult.Failure($"Sprzęt {equipment.SerialNumber} jest niedostępny.");
+                return BookingResult.Failure($"Sprzęt {equipment.SerialNumber} jest niedostępny ({equipment.Status}).");
         }
 
-        // 2. Oblicz całkowitą kwotę
+        // 2. Calculate total
         var totalAmount = await CalculateTotalAmountAsync(request, ct);
 
-        // 3. Generuj unikalny kod QR
+        // 3. Generate unique QR code
         var qrCode = GenerateQrCode(request);
 
-        // 4. Utwórz encję Rental
+        // 4. Build Rental entity (status = Pending)
         var rental = new Rental
         {
             CustomerProfileId = request.CustomerProfileId,
@@ -74,27 +82,30 @@ public sealed class BookingService
 
         rental = await _rentalRepo.CreateAsync(rental, ct);
 
-        // 5. Zmień status sprzętu na "wypożyczony"
-        foreach (var id in request.EquipmentIds)
-            await _equipmentRepo.UpdateStatusAsync(id, EquipmentStatus.Rented, ct);
-
-        // 6. Preautoryzacja BLIK (opcjonalna)
+        // 5. BLIK payment (upfront) – if code provided
         if (request.BlikCode is not null)
         {
             var payResult = await _paymentProvider.InitiateBlikPayment(
                 totalAmount, request.BlikCode, rental.Id.ToString(), BuildOrderDescription(rental));
 
-            rental.PaymentStatus     = payResult.IsSuccess ? PaymentStatus.Paid : PaymentStatus.Failed;
-            rental.PayUOrderId       = payResult.ExternalTransactionId;
-            rental.IsPreauthorized   = payResult.IsSuccess;
-            await _rentalRepo.UpdateAsync(rental, ct);
-
-            if (!payResult.IsSuccess)
+            if (payResult.IsSuccess)
+            {
+                rental.PaymentStatus   = PaymentStatus.Paid;
+                rental.PayUOrderId     = payResult.ExternalTransactionId;
+                rental.IsPreauthorized = false; // direct payment, not pre-auth
+            }
+            else
             {
                 _logger.LogWarning("BLIK payment failed: {Error}", payResult.ErrorMessage);
-                return BookingResult.Failure($"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
+
+                // Payment failed — keep rental as Pending/Unpaid; do NOT lock equipment.
+                await _rentalRepo.UpdateAsync(rental, ct);
+                return BookingResult.Failure(
+                    $"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
                     rental.Id, qrCode);
             }
+
+            await _rentalRepo.UpdateAsync(rental, ct);
         }
 
         _logger.LogInformation("Booking {RentalId} created. QR={QrCode}", rental.Id, qrCode);
@@ -102,15 +113,58 @@ public sealed class BookingService
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Zwrot sprzętu (przez QR / NFC)
+    // 2. Activate rental (worker hands over equipment)
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Przetwarza zwrot sprzętu na podstawie kodu QR zeskanowanego przez pracownika.
+    /// Transitions a Pending rental to Active.
+    /// This is the moment equipment physically leaves the shop — equipment
+    /// status is updated to Rented here, not at booking time.
+    /// Called by the worker panel after verifying customer identity.
+    /// </summary>
+    public async Task<ActivationResult> ActivateRentalAsync(
+        int rentalId,
+        int workerId,
+        CancellationToken ct = default)
+    {
+        var rental = await _rentalRepo.GetByIdAsync(rentalId, ct);
+
+        if (rental is null)
+            return ActivationResult.Failure($"Wypożyczenie #{rentalId} nie istnieje.");
+
+        if (rental.Status != RentalStatus.Pending)
+            return ActivationResult.Failure(
+                $"Wypożyczenie #{rentalId} ma status {rental.Status}. Aktywacja niemożliwa.");
+
+        // Check payment – cannot activate without payment (or explicit override)
+        if (rental.PaymentStatus == PaymentStatus.Unpaid)
+            return ActivationResult.Failure(
+                "Brak płatności. Pobierz opłatę lub zarejstruj przedpłatę przed wydaniem sprzętu.");
+
+        // Mark equipment as physically Rented
+        foreach (var re in rental.RentalEquipments)
+            await _equipmentRepo.UpdateStatusAsync(re.EquipmentId, EquipmentStatus.Rented, ct);
+
+        rental.Status     = RentalStatus.Active;
+        rental.EmployeeId = workerId;
+        await _rentalRepo.UpdateAsync(rental, ct);
+
+        _logger.LogInformation("Rental {RentalId} activated by worker {WorkerId}", rentalId, workerId);
+        return ActivationResult.Success(rentalId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 3. Process return by QR code
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Processes equipment return when worker scans the customer's QR code.
+    /// Records condition at return, releases equipment back to Available,
+    /// and finalises pre-authorised payment if applicable.
     /// </summary>
     public async Task<ReturnResult> ProcessReturnByQrCodeAsync(
         string qrCode,
-        Dictionary<int, int> equipmentConditions,
+        Dictionary<int, int> equipmentConditions,     // equipmentId → condition 1–5
         CancellationToken ct = default)
     {
         var rental = await _rentalRepo.GetByQrCodeAsync(qrCode, ct);
@@ -119,9 +173,10 @@ public sealed class BookingService
             return ReturnResult.Failure("Nie znaleziono wypożyczenia dla podanego kodu QR.");
 
         if (rental.Status != RentalStatus.Active)
-            return ReturnResult.Failure($"Wypożyczenie ma status {rental.Status}. Zwrot niemożliwy.");
+            return ReturnResult.Failure(
+                $"Wypożyczenie ma status {rental.Status}. Zwrot niemożliwy.");
 
-        // Zaktualizuj stan sprzętu przy zwrocie
+        // Record condition at return and release equipment
         foreach (var re in rental.RentalEquipments)
         {
             if (equipmentConditions.TryGetValue(re.EquipmentId, out var condition))
@@ -133,18 +188,73 @@ public sealed class BookingService
         rental.Status           = RentalStatus.Completed;
         rental.ActualReturnTime = DateTime.UtcNow;
 
-        // Finalizuj płatność jeśli preautoryzowana
+        // Capture pre-auth if applicable
         if (rental.IsPreauthorized && rental.PayUOrderId is not null)
         {
             var captureResult = await _paymentProvider.CapturePreauthorization(
                 rental.PayUOrderId, rental.TotalAmount);
-            rental.PaymentStatus = captureResult.IsSuccess ? PaymentStatus.Paid : rental.PaymentStatus;
+            if (captureResult.IsSuccess)
+                rental.PaymentStatus = PaymentStatus.Paid;
         }
 
         await _rentalRepo.UpdateAsync(rental, ct);
 
         _logger.LogInformation("Return processed for rental {RentalId}", rental.Id);
-        return ReturnResult.Success(rental.Id, rental.ActualReturnTime.Value);
+
+        // Flag if any equipment returned in poor condition (< 3)
+        var damagedItems = rental.RentalEquipments
+            .Where(re => re.ConditionAtReturn.HasValue && re.ConditionAtReturn < 3)
+            .Select(re => re.EquipmentId)
+            .ToList();
+
+        return ReturnResult.Success(rental.Id, rental.ActualReturnTime.Value, damagedItems);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 4. Cancel booking
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Cancels a Pending booking and (if already paid) initiates a refund.
+    /// Cannot cancel Active rentals — use return flow instead.
+    /// </summary>
+    public async Task<CancelResult> CancelBookingAsync(
+        int rentalId,
+        CancellationToken ct = default)
+    {
+        var rental = await _rentalRepo.GetByIdAsync(rentalId, ct);
+
+        if (rental is null)
+            return CancelResult.Failure($"Wypożyczenie #{rentalId} nie istnieje.");
+
+        if (rental.Status == RentalStatus.Active)
+            return CancelResult.Failure("Nie można anulować aktywnego wypożyczenia. Użyj procesu zwrotu.");
+
+        if (rental.Status is RentalStatus.Completed or RentalStatus.Cancelled)
+            return CancelResult.Failure($"Wypożyczenie ma już status {rental.Status}.");
+
+        // Refund if already paid
+        string? refundTxId = null;
+        if (rental.PaymentStatus == PaymentStatus.Paid && rental.PayUOrderId is not null)
+        {
+            var refund = await _paymentProvider.RefundPayment(rental.PayUOrderId);
+            if (refund.IsSuccess)
+            {
+                rental.PaymentStatus = PaymentStatus.Refunded;
+                refundTxId = refund.ExternalTransactionId;
+            }
+            else
+            {
+                _logger.LogWarning("Refund failed for rental {RentalId}: {Error}", rentalId, refund.ErrorMessage);
+                // Don't block cancellation — log and continue; finance team can handle manually
+            }
+        }
+
+        rental.Status = RentalStatus.Cancelled;
+        await _rentalRepo.UpdateAsync(rental, ct);
+
+        _logger.LogInformation("Rental {RentalId} cancelled. RefundTx={RefundTxId}", rentalId, refundTxId);
+        return CancelResult.Success(rentalId, refundTxId);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -171,6 +281,14 @@ public sealed class BookingService
 
     private static string BuildOrderDescription(Rental r) =>
         $"Wynajem nart – klient #{r.CustomerProfileId} – {r.StartTime:dd.MM.yyyy} do {r.EndTime:dd.MM.yyyy}";
+
+    /// <summary>
+    /// Returns a rental with all related data loaded by its QR code.
+    /// Used by the employee QR scanner panel.
+    /// </summary>
+    public Task<Rental?> GetRentalByQrCodeAsync(string qrCode, CancellationToken ct = default)
+        => _rentalRepo.GetByQrCodeAsync(qrCode, ct);
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -208,7 +326,39 @@ public record ReturnResult
     public int? RentalId { get; init; }
     public DateTime? ReturnTime { get; init; }
     public string? ErrorMessage { get; init; }
+    /// <summary>Equipment IDs returned in poor condition (condition &lt; 3). May trigger damage surcharge.</summary>
+    public IReadOnlyList<int> DamagedEquipmentIds { get; init; } = [];
 
-    public static ReturnResult Success(int id, DateTime t) => new() { IsSuccess = true, RentalId = id, ReturnTime = t };
-    public static ReturnResult Failure(string msg) => new() { IsSuccess = false, ErrorMessage = msg };
+    public static ReturnResult Success(int id, DateTime t, IReadOnlyList<int> damaged) =>
+        new() { IsSuccess = true, RentalId = id, ReturnTime = t, DamagedEquipmentIds = damaged };
+
+    public static ReturnResult Failure(string msg) =>
+        new() { IsSuccess = false, ErrorMessage = msg };
 }
+
+public record ActivationResult
+{
+    public bool IsSuccess { get; init; }
+    public int? RentalId { get; init; }
+    public string? ErrorMessage { get; init; }
+
+    public static ActivationResult Success(int id) => new() { IsSuccess = true, RentalId = id };
+    public static ActivationResult Failure(string msg) => new() { IsSuccess = false, ErrorMessage = msg };
+}
+
+public record CancelResult
+{
+    public bool IsSuccess { get; init; }
+    public int? RentalId { get; init; }
+    public string? RefundTransactionId { get; init; }
+    public string? ErrorMessage { get; init; }
+
+    public static CancelResult Success(int id, string? refundTxId) =>
+        new() { IsSuccess = true, RentalId = id, RefundTransactionId = refundTxId };
+
+    public static CancelResult Failure(string msg) => new() { IsSuccess = false, ErrorMessage = msg };
+}
+
+// ── QrScannerPanel helper ────────────────────────────────────────────────────
+// Extension to BookingService added alongside QrScannerPanel refactor.
+// Exposes rental lookup by QR code for the employee panel.

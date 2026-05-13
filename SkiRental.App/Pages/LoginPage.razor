@@ -1,6 +1,8 @@
 @page "/login"
 @using System.ComponentModel.DataAnnotations
-@inject SkiRental.App.Services.AuthenticationService AuthService
+@using SkiRental.App.Services
+@inject AuthenticationService AuthService
+@inject NavigationManager NavigationManager
 
 <PageTitle>Logowanie | SkiRental</PageTitle>
 
@@ -14,48 +16,54 @@
             <p class="login-subtitle">Zaloguj się do swojego konta</p>
         </div>
 
-        <EditForm Model="@loginModel" OnValidSubmit="@HandleLogin" class="login-form">
+        <EditForm Model="@_model" OnValidSubmit="@HandleLogin" class="login-form">
             <DataAnnotationsValidator />
-            <ValidationSummary class="error-summary" />
-            
-            @if (!string.IsNullOrEmpty(errorMessage))
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
             {
-                <div class="error-message">
-                    @errorMessage
+                <div class="error-message" role="alert">
+                    @_errorMessage
                 </div>
             }
 
+            @if (_successMessage is not null)
+            {
+                <div class="success-message" role="status">@_successMessage</div>
+            }
+
             <div class="form-group">
-                <label for="username">Nazwa użytkownika lub email</label>
-                <InputText id="username" class="form-input" @bind-Value="loginModel.Username" 
-                           placeholder="Wprowadź nazwę użytkownika lub email" />
-                <ValidationMessage For="@(() => loginModel.Username)" />
+                <label for="username">Nazwa użytkownika</label>
+                <InputText id="username" class="form-input" @bind-Value="_model.Username"
+                           placeholder="Wprowadź nazwę użytkownika"
+                           autocomplete="username" />
+                <ValidationMessage For="@(() => _model.Username)" />
             </div>
 
             <div class="form-group">
                 <label for="password">Hasło</label>
                 <div class="password-input-wrapper">
-                    <InputText type="@passwordType" id="password" class="form-input" 
-                               @bind-Value="loginModel.Password" 
-                               placeholder="Wprowadź hasło" />
-                    <button type="button" class="password-toggle" @onclick="TogglePasswordVisibility">
-                        @passwordIcon
+                    <InputText type="@_passwordType" id="password" class="form-input"
+                               @bind-Value="_model.Password"
+                               placeholder="Wprowadź hasło"
+                               autocomplete="current-password" />
+                    <button type="button" class="password-toggle" @onclick="TogglePasswordVisibility"
+                            aria-label="Pokaż/ukryj hasło">
+                        @_passwordIcon
                     </button>
                 </div>
-                <ValidationMessage For="@(() => loginModel.Password)" />
+                <ValidationMessage For="@(() => _model.Password)" />
             </div>
 
             <div class="form-options">
                 <label class="checkbox-wrapper">
-                    <InputCheckbox @bind-Value="loginModel.RememberMe" />
+                    <InputCheckbox @bind-Value="_model.RememberMe" />
                     <span class="checkmark"></span>
                     Zapamiętaj mnie
                 </label>
-                <a href="/forgot-password" class="forgot-password-link">Zapomniałeś hasła?</a>
             </div>
 
-            <button type="submit" class="login-button" disabled="@isLoggingIn">
-                @if (isLoggingIn)
+            <button type="submit" class="login-button" disabled="@_isLoggingIn">
+                @if (_isLoggingIn)
                 {
                     <span class="spinner"></span>
                     <span>Logowanie...</span>
@@ -67,107 +75,98 @@
             </button>
         </EditForm>
 
-        <div class="login-divider">
-            <span>lub</span>
-        </div>
-
+        @* Social login — not implemented in current version *@
+        <div class="login-divider"><span>lub</span></div>
         <div class="social-login">
-            <button class="social-button google" @onclick="LoginWithGoogle">
+            <button class="social-button google" disabled title="Logowanie przez Google – wkrótce dostępne">
                 <span class="social-icon">🌐</span>
-                Zaloguj przez Google
+                Google (wkrótce)
             </button>
-            <button class="social-button facebook" @onclick="LoginWithFacebook">
+            <button class="social-button facebook" disabled title="Logowanie przez Facebook – wkrótce dostępne">
                 <span class="social-icon">📘</span>
-                Zaloguj przez Facebook
+                Facebook (wkrótce)
             </button>
         </div>
 
         <div class="login-footer">
             <p>Nie masz jeszcze konta? <a href="/register" class="register-link">Zarejestruj się</a></p>
         </div>
+
+#if DEBUG
+        @* Demo credentials helper — stripped from Release builds *@
+        <div class="debug-hint">
+            <strong>Demo:</strong><br />
+            owner / owner123 (Właściciel)<br />
+            worker / worker123 (Pracownik)<br />
+            user / user123 (Klient)
+        </div>
+#endif
     </div>
 </div>
 
 @code {
-    private LoginModel loginModel = new();
-    private bool isLoggingIn = false;
-    private string passwordType = "password";
-    private string passwordIcon = "👁️";
-    private string? errorMessage;
+    private readonly LoginModel _model = new();
+    private bool _isLoggingIn;
+    private string _passwordType = "password";
+    private string _passwordIcon = "👁️";
+    private string? _errorMessage;
+    private string? _successMessage;
 
-    public class LoginModel
+    // Redirect immediately if already logged in
+    protected override void OnInitialized()
     {
-        [Required(ErrorMessage = "Nazwa użytkownika lub email jest wymagany")]
-        [StringLength(100, ErrorMessage = "Nazwa użytkownika nie może przekraczać 100 znaków")]
-        public string Username { get; set; } = "";
-
-        [Required(ErrorMessage = "Hasło jest wymagane")]
-        [StringLength(100, MinimumLength = 6, ErrorMessage = "Hasło musi mieć od 6 do 100 znaków")]
-        public string Password { get; set; } = "";
-
-        public bool RememberMe { get; set; }
+        if (AuthService.IsAuthenticated)
+            NavigationManager.NavigateTo("/");
     }
 
     private async Task HandleLogin()
     {
-        isLoggingIn = true;
-        errorMessage = null; // Clear previous errors
-        
+        _isLoggingIn  = true;
+        _errorMessage = null;
+
         try
         {
-            var result = await AuthService.LoginAsync(loginModel.Username, loginModel.Password, loginModel.RememberMe);
-            
+            var result = await AuthService.LoginAsync(_model.Username, _model.Password, _model.RememberMe);
+
             if (result.Success)
-            {
-                // Navigate to home page after successful login
                 NavigationManager.NavigateTo("/");
-            }
             else
-            {
-                // Show error message to user
-                errorMessage = result.Message;
-            }
+                _errorMessage = result.Message;
         }
         catch (Exception ex)
         {
-            errorMessage = $"Wystąpił błąd podczas logowania: {ex.Message}";
+            _errorMessage = $"Błąd połączenia: {ex.Message}";
         }
         finally
         {
-            isLoggingIn = false;
+            _isLoggingIn = false;
         }
     }
 
     private void TogglePasswordVisibility()
     {
-        if (passwordType == "password")
+        if (_passwordType == "password")
         {
-            passwordType = "text";
-            passwordIcon = "🙈";
+            _passwordType = "text";
+            _passwordIcon = "🙈";
         }
         else
         {
-            passwordType = "password";
-            passwordIcon = "👁️";
+            _passwordType = "password";
+            _passwordIcon = "👁️";
         }
     }
 
-    private void LoginWithGoogle()
+    private sealed class LoginModel
     {
-        SocialLogin("Google");
-    }
+        [Required(ErrorMessage = "Nazwa użytkownika jest wymagana")]
+        [StringLength(100, MinimumLength = 3, ErrorMessage = "Nazwa użytkownika musi mieć 3–100 znaków")]
+        public string Username { get; set; } = string.Empty;
 
-    private void LoginWithFacebook()
-    {
-        SocialLogin("Facebook");
-    }
+        [Required(ErrorMessage = "Hasło jest wymagane")]
+        [StringLength(100, MinimumLength = 6, ErrorMessage = "Hasło musi mieć od 6 do 100 znaków")]
+        public string Password { get; set; } = string.Empty;
 
-    private void SocialLogin(string provider)
-    {
-        // TODO: Implement social login
-        Console.WriteLine($"Social login with {provider}");
+        public bool RememberMe { get; set; }
     }
-
-    [Inject]
-    private NavigationManager NavigationManager { get; set; } = default!;
 }

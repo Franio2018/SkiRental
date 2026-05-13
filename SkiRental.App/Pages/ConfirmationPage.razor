@@ -1,0 +1,241 @@
+@page "/confirmation"
+@using SkiRental.Domain.Models
+@using SkiRental.Domain.Enums
+@using Microsoft.AspNetCore.Components
+
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Booking Confirmed - SkiRental</PageTitle>
+
+<div class="confirmation-page">
+    @if (_bookingData == null)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading confirmation...</p>
+        </div>
+    }
+    else
+    {
+        <div class="confirmation-container">
+            <div class="success-header">
+                <div class="success-icon">🎉</div>
+                <h1>Booking Confirmed!</h1>
+                <p class="subtitle">Your equipment is reserved and ready for pickup</p>
+            </div>
+
+            <div class="qr-section">
+                <h2>Your Pickup Code</h2>
+                <div class="qr-code-container">
+                    <div class="qr-code">
+                        @_bookingData.QrCode
+                    </div>
+                    <div class="qr-instructions">
+                        <p><strong>Show this code to staff</strong></p>
+                        <p>Scan at the rental desk to pick up your equipment</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="booking-details">
+                <h2>Booking Details</h2>
+                <div class="detail-cards">
+                    <div class="detail-card">
+                        <div class="card-icon">📋</div>
+                        <div class="card-content">
+                            <h3>Rental Information</h3>
+                            <div class="detail-row">
+                                <span>Booking ID:</span>
+                                <strong>#@_bookingData.RentalId</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Payment Method:</span>
+                                <strong>@_bookingData.PaymentMethod</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Total Amount:</span>
+                                <strong class="amount">@_bookingData.TotalAmount PLN</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-card">
+                        <div class="card-icon">⏰</div>
+                        <div class="card-content">
+                            <h3>Pickup Instructions</h3>
+                            <div class="detail-row">
+                                <span>Location:</span>
+                                <strong>SkiRental Shop</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Address:</span>
+                                <strong>123 Ski Street, Zakopane</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Hours:</span>
+                                <strong>8:00 - 18:00 daily</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-card">
+                        <div class="card-icon">📱</div>
+                        <div class="card-content">
+                            <h3>Stay Connected</h3>
+                            <div class="detail-row">
+                                <span>Notifications:</span>
+                                <strong>Enabled</strong>
+                            </div>
+                            <div class="detail-row">
+                                <span>Support:</span>
+                                <strong>+48 123 456 789</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="receipt-section">
+                <h2>Receipt</h2>
+                <div class="receipt-container" id="receipt-print">
+                    <div class="receipt-header">
+                        <h3>SkiRental Receipt</h3>
+                        <p>Booking #@_bookingData.RentalId</p>
+                        <p>@DateTime.Now:dd.MM.yyyy HH:mm</p>
+                    </div>
+
+                    <div class="receipt-items">
+                        <div class="receipt-item">
+                            <span>Equipment Rental</span>
+                            <span>@_bookingData.TotalAmount PLN</span>
+                        </div>
+                        @if (_bookingData.PaymentMethod == PaymentMethod.Spot)
+                        {
+                            <div class="receipt-item">
+                                <span>Payment Status:</span>
+                                <span>Due at pickup</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="receipt-item">
+                                <span>Payment Status:</span>
+                                <span>Paid</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="receipt-total">
+                        <strong>Total:</strong>
+                        <strong>@_bookingData.TotalAmount PLN</strong>
+                    </div>
+
+                    <div class="receipt-footer">
+                        <p>Thank you for choosing SkiRental!</p>
+                        <p>Questions? Call +48 123 456 789</p>
+                    </div>
+                </div>
+
+                <div class="receipt-actions">
+                    <button class="btn-secondary" @onclick="PrintReceipt">
+                        🖨️ Print Receipt
+                    </button>
+                    <button class="btn-secondary" @onclick="DownloadReceipt">
+                        📄 Download PDF
+                    </button>
+                </div>
+            </div>
+
+            <div class="action-section">
+                <div class="next-steps">
+                    <h3>What's Next?</h3>
+                    <div class="step-list">
+                        <div class="step">
+                            <span class="step-number">1</span>
+                            <div class="step-content">
+                                <strong>Visit our shop</strong>
+                                <p>Come to SkiRental Shop during opening hours</p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">2</span>
+                            <div class="step-content">
+                                <strong>Show your QR code</strong>
+                                <p>Present the code above to our staff</p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <span class="step-number">3</span>
+                            <div class="step-content">
+                                <strong>Get your gear</strong>
+                                <p>Try on equipment and get ready to ski!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn-secondary" @onclick="ViewMyRentals">
+                        📋 My Rentals
+                    </button>
+                    <button class="btn-primary" @onclick="StartNewBooking">
+                        🎿 New Booking
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private dynamic? _bookingData; // Using dynamic for simplicity - in real app would use proper DTO
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBookingDataFromQuery();
+    }
+
+    private async Task LoadBookingDataFromQuery()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var dataParam = query["data"];
+
+        if (string.IsNullOrEmpty(dataParam))
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        try
+        {
+            _bookingData = System.Text.Json.JsonSerializer.Deserialize<object>(dataParam);
+        }
+        catch
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private async Task PrintReceipt()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print", new object[] { "receipt-print" });
+    }
+
+    private async Task DownloadReceipt()
+    {
+        // TODO: Implement PDF download functionality
+        await JSRuntime.InvokeVoidAsync("alert", new object[] { "PDF download coming soon!" });
+    }
+
+    private void ViewMyRentals()
+    {
+        Navigation.NavigateTo("/my-rentals");
+    }
+
+    private void StartNewBooking()
+    {
+        Navigation.NavigateTo("/booking");
+    }
+}
