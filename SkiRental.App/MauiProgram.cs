@@ -45,28 +45,8 @@ public static class MauiProgram
         var config = builder.Configuration;
 
         // ── Database ──────────────────────────────────────────────────────────
-        // Copy database to app directory and use local copy
-        var sourceDbPath = Path.GetFullPath(Path.Combine("..", "SkiRental.Logic", "SkiRental.db"));
         var localDbPath = Path.Combine(FileSystem.AppDataDirectory, "SkiRental.db");
-        
-        // Always delete local copy to ensure fresh migration
-        if (File.Exists(localDbPath))
-        {
-            File.Delete(localDbPath);
-        }
-        
-        // Copy database if it doesn't exist locally
-        if (File.Exists(sourceDbPath))
-        {
-            File.Copy(sourceDbPath, localDbPath);
-        }
-        
         var connectionString = $"Data Source={localDbPath}";
-        
-        // Debug: Log the database path
-        Console.WriteLine($"Source DB: {sourceDbPath}");
-        Console.WriteLine($"Local DB: {localDbPath}");
-        Console.WriteLine($"Local DB exists: {File.Exists(localDbPath)}");
 
         // Single call — registers DbContext + all repositories + domain services.
         builder.Services.AddSkiRentalServices(connectionString);

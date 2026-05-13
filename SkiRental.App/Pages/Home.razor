@@ -128,8 +128,12 @@
 
     protected override async Task OnInitializedAsync()
     {
-        try { _weather = await Weather.GetSkiConditionsAsync(); }
-        catch { /* weather widget is optional */ }
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            _weather = await Weather.GetSkiConditionsAsync(49.2992, 19.9496, cts.Token);
+        }
+        catch { /* weather widget is optional — silently skip */ }
     }
 
     private static string RoleLabel(AppRole role) => role switch
