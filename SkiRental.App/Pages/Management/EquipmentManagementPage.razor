@@ -53,7 +53,7 @@
                 <div class="form-group">
                     <label>Kategoria</label>
                     <select @bind="_editItem.Category" class="form-input">
-                        @foreach (var cat in Enum.GetValues<EquipmentCategory>())
+                        @foreach (var cat in RentalEquipmentCategories.All)
                         {
                             <option value="@cat">@cat</option>
                         }
@@ -127,9 +127,10 @@
             }
         </div>
 
-        var visible = _filter is null
-            ? _equipment
-            : _equipment.Where(e => e.Status == _filter).ToList();
+        var offered = _equipment.Where(e => RentalEquipmentCategories.All.Contains(e.Category));
+        var visible = (_filter is null
+            ? offered
+            : offered.Where(e => e.Status == _filter)).ToList();
 
         <div class="equipment-grid">
             @foreach (var item in visible)
@@ -307,7 +308,6 @@
         EquipmentCategory.Skis    => "🎿",
         EquipmentCategory.Boots   => "👢",
         EquipmentCategory.Poles   => "🏒",
-        EquipmentCategory.Helmet  => "⛑️",
         _                         => "📦"
     };
 }

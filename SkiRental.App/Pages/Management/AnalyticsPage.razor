@@ -3,6 +3,10 @@
 ═════════════════════════════════════════════════════════════════════════════ *@
 @page "/analytics"
 @using SkiRental.UI.Shared.Components.Analytics
+@using SkiRental.Logic.Services
+@inject AnalyticsService Analytics
+@inject AnalyticsExportService Export
+@inject IJSRuntime JS
 
 <PageTitle>Analityka | SkiRental</PageTitle>
 
@@ -10,5 +14,20 @@
     <nav class="breadcrumb">
         <a href="/">Strona główna</a> / Analityka
     </nav>
+    <div style="margin-bottom:1rem;">
+        <button class="btn-secondary" type="button" @onclick="ExportCsvAsync">⬇️ Eksport CSV</button>
+    </div>
     <UtilizationDashboard />
 </div>
+
+@code {
+    private async Task ExportCsvAsync()
+    {
+        var seasonStart = new DateTime(DateTime.Now.Year, 12, 1);
+        var seasonEnd = new DateTime(DateTime.Now.Year + 1, 3, 31);
+        var reports = await Analytics.GetFleetUtilizationReportAsync(seasonStart, seasonEnd);
+        var bytes = Export.ExportUtilizationToCsv(reports);
+        var b64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("SkiRentalDownload.downloadText", b64, "utilizacja-floty.csv", "text/csv;charset=utf-8");
+    }
+}

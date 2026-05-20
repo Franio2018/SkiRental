@@ -91,6 +91,41 @@
             }
         };
 
+        // ── Booking wizard bridge (MAUI WebView: native onclick → Blazor) ─────────
+        window.wizardBridgeInit = function(dotNetRef) {
+            window.wizardBridge = {
+                _ref: dotNetRef,
+                setStyle: function(val) { this._ref.invokeMethodAsync('JsSetStyle', val); },
+                setSkill: function(val) { this._ref.invokeMethodAsync('JsSetSkill', val); },
+                goToStep2: function() { this._ref.invokeMethodAsync('JsGoToStep2'); },
+                selectEquipment: function(id) { this._ref.invokeMethodAsync('JsSelectEquipment', id); },
+                goToStep1: function() { this._ref.invokeMethodAsync('JsGoToStep1'); },
+                goToStep3: function() { this._ref.invokeMethodAsync('JsGoToStep3'); }
+            };
+        };
+
+        window.wizardBridge = {
+            setStyle: function() {},
+            setSkill: function() {},
+            goToStep2: function() {},
+            selectEquipment: function() {},
+            goToStep1: function() {},
+            goToStep3: function() {}
+        };
+
+        window.showPopup = function(title, message) {
+            var el = document.getElementById('custom-popup');
+            if (!el) return;
+            document.getElementById('popup-title').innerText = title;
+            document.getElementById('popup-message').innerText = message;
+            el.classList.remove('popup-hidden');
+        };
+
+        window.hidePopup = function() {
+            var el = document.getElementById('custom-popup');
+            if (el) el.classList.add('popup-hidden');
+        };
+
         // ── File download helper ─────────────────────────────────────────────────
         window.SkiRentalDownload = {
             downloadText: function(base64, fileName, mimeType) {

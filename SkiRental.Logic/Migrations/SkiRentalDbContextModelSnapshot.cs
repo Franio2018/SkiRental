@@ -17,6 +17,48 @@ namespace SkiRental.Logic.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
 
+            modelBuilder.Entity("SkiRental.Domain.Models.AppNotification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AppUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("RelatedRentalId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppUserId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("AppNotifications");
+                });
+
             modelBuilder.Entity("SkiRental.Domain.Models.AppUser", b =>
                 {
                     b.Property<int>("Id")
@@ -64,7 +106,7 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("Username")
                         .IsUnique();
 
-                    b.ToTable("AppUsers", (string)null);
+                    b.ToTable("AppUsers");
 
                     b.HasData(
                         new
@@ -162,7 +204,7 @@ namespace SkiRental.Logic.Migrations
                     b.HasIndex("SerialNumber")
                         .IsUnique();
 
-                    b.ToTable("Equipment", (string)null);
+                    b.ToTable("Equipment");
 
                     b.HasData(
                         new
@@ -237,6 +279,129 @@ namespace SkiRental.Logic.Migrations
                             Status = "Available",
                             TotalRentalDays = 0,
                             YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Brand = "Salomon",
+                            Category = "Boots",
+                            CompatibleStyle = "Classic",
+                            DailyRate = 35m,
+                            Model = "Prolink Access",
+                            SerialNumber = "SAL-BT-40",
+                            Size = 40m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Brand = "Salomon",
+                            Category = "Boots",
+                            CompatibleStyle = "Classic",
+                            DailyRate = 35m,
+                            Model = "Prolink Access",
+                            SerialNumber = "SAL-BT-41",
+                            Size = 41m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 8,
+                            Brand = "Salomon",
+                            Category = "Boots",
+                            CompatibleStyle = "Combi",
+                            DailyRate = 35m,
+                            Model = "Prolink Access",
+                            SerialNumber = "SAL-BT-42",
+                            Size = 42m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 9,
+                            Brand = "Salomon",
+                            Category = "Boots",
+                            CompatibleStyle = "Combi",
+                            DailyRate = 35m,
+                            Model = "Prolink Access",
+                            SerialNumber = "SAL-BT-43",
+                            Size = 43m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2024
+                        },
+                        new
+                        {
+                            Id = 10,
+                            Brand = "Fischer",
+                            Category = "Boots",
+                            CompatibleStyle = "Classic",
+                            DailyRate = 40m,
+                            Model = "RC3 Classic",
+                            SerialNumber = "FIS-BT-44",
+                            Size = 44m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2024
+                        },
+                        new
+                        {
+                            Id = 11,
+                            Brand = "Fischer",
+                            Category = "Boots",
+                            CompatibleStyle = "Skate",
+                            DailyRate = 40m,
+                            Model = "RC3 Skate",
+                            SerialNumber = "FIS-BT-45",
+                            Size = 45m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2024
+                        },
+                        new
+                        {
+                            Id = 12,
+                            Brand = "Leki",
+                            Category = "Gloves",
+                            DailyRate = 10m,
+                            Model = "Nordic Glove S",
+                            SerialNumber = "GLO-S-001",
+                            Size = 1m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 13,
+                            Brand = "Leki",
+                            Category = "Gloves",
+                            DailyRate = 10m,
+                            Model = "Nordic Glove M",
+                            SerialNumber = "GLO-M-001",
+                            Size = 2m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
+                        },
+                        new
+                        {
+                            Id = 14,
+                            Brand = "Uvex",
+                            Category = "Helmet",
+                            DailyRate = 15m,
+                            Model = "Sportstyle S",
+                            SerialNumber = "HLM-S-001",
+                            Size = 1m,
+                            Status = "Available",
+                            TotalRentalDays = 0,
+                            YearOfProduction = 2023
                         });
                 });
 
@@ -278,7 +443,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("RentalId");
 
-                    b.ToTable("Payments", (string)null);
+                    b.ToTable("Payments");
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.Rental", b =>
@@ -346,7 +511,7 @@ namespace SkiRental.Logic.Migrations
                         .IsUnique()
                         .HasFilter("[QrCode] IS NOT NULL");
 
-                    b.ToTable("Rentals", (string)null);
+                    b.ToTable("Rentals");
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.RentalEquipment", b =>
@@ -367,7 +532,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("EquipmentId");
 
-                    b.ToTable("RentalEquipments", (string)null);
+                    b.ToTable("RentalEquipments");
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.UserProfile", b =>
@@ -450,7 +615,7 @@ namespace SkiRental.Logic.Migrations
 
                     b.HasIndex("Email");
 
-                    b.ToTable("UserProfiles", (string)null);
+                    b.ToTable("UserProfiles");
                 });
 
             modelBuilder.Entity("SkiRental.Domain.Models.AppUser", b =>

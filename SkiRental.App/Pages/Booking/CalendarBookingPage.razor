@@ -1,0 +1,79 @@
+@page "/calendar-booking"
+@using SkiRental.App.Services
+@using SkiRental.Logic.Services
+@using Microsoft.Extensions.Options
+@using SkiRental.Logic.Options
+@inject AuthenticationService Auth
+@inject NavigationManager Navigation
+@inject IOptions<SkiRentalOptions> SkiOpts
+@inject RentalRulesService Rules
+
+<PageTitle>Rezerwacja z wyprzedzeniem | SkiRental</PageTitle>
+
+<div class="page-container">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / <a href="/booking">Rezerwacja</a> / Kalendarz
+    </nav>
+
+    <h2>📅 Rezerwacja z wyprzedzeniem</h2>
+    <p class="step-description">
+        Sezon: @SeasonStartText – @SeasonEndText
+        (max @SkiOpts.Value.MaxRentalDaysPerBooking dni)
+    </p>
+
+    <div class="form-grid">
+        <div class="form-group">
+            <label>Data rozpoczęcia</label>
+            <input type="date" class="form-input" @bind="_startDate" min="@_minDate" max="@_maxDate" />
+        </div>
+        <div class="form-group">
+            <label>Data zakończenia</label>
+            <input type="date" class="form-input" @bind="_endDate" min="@_startDate" max="@_maxDate" />
+        </div>
+    </div>
+
+    @if (_validationError is not null)
+    {
+        <div class="error-notice">@_validationError</div>
+    }
+
+    <button class="btn-primary" type="button" @onclick="ContinueToBooking" disabled="@(_startDate == default)">
+        Dalej do kreatora rezerwacji →
+    </button>
+</div>
+
+@code {
+    private DateTime _startDate = DateTime.Today.AddDays(1);
+    private DateTime _endDate = DateTime.Today.AddDays(2);
+    private string? _validationError;
+    private string _minDate = "";
+    private string _maxDate = "";
+    private string SeasonStartText => SkiOpts.Value.SeasonStart.ToString("dd.MM.yyyy");
+    private string SeasonEndText => SkiOpts.Value.SeasonEnd.ToString("dd.MM.yyyy");
+
+    protected override void OnInitialized()
+    {
+        if (!Auth.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/calendar-booking");
+            return;
+        }
+
+        _minDate = SkiOpts.Value.SeasonStart.ToString("yyyy-MM-dd");
+        _maxDate = SkiOpts.Value.SeasonEnd.ToString("yyyy-MM-dd");
+    }
+
+    private void ContinueToBooking()
+    {
+        var start = _startDate.Date.AddHours(9);
+        var end = _endDate.Date.AddHours(18);
+        var check = Rules.ValidateBookingWindow(start, end);
+        if (!check.IsValid)
+        {
+            _validationError = check.Error;
+            return;
+        }
+
+        Navigation.NavigateTo($"/booking?start={start:O}&end={end:O}");
+    }
+}

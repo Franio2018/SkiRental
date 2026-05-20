@@ -17,7 +17,7 @@
 <div class="booking-wizard">
 
     @* ── Custom Popup Modal (JavaScript-based) ─────────────────────────────── *@
-    <div id="custom-popup" class="popup-overlay" style="display: none;" onclick="hidePopup();">
+    <div id="custom-popup" class="popup-overlay popup-hidden" onclick="hidePopup();">
         <div class="popup-content" onclick="event.stopPropagation();">
             <div class="popup-header">
                 <h3 id="popup-title">Tytuł</h3>
@@ -181,38 +181,44 @@
                 }
                 else
                 {
-                    <div class="equipment-list">
-                        @foreach (var eq in _recommendation.MatchingEquipment)
-                        {
-                            var eqId = eq.Id;
-                            <div class="equipment-card @(SelectedEquipmentIds.Contains(eq.Id) ? "selected" : "")"
-                                 @onclick="() => ToggleEquipment(eqId)">
-                                <div class="eq-header">
-                                    <span class="eq-category">@eq.Category</span>
-                                    @if (SelectedEquipmentIds.Contains(eq.Id))
-                                    {
-                                        <span class="eq-selected-badge">✓ Wybrano</span>
-                                    }
-                                </div>
-                                <h4>@eq.Brand @eq.Model</h4>
-                                <div class="eq-details">
-                                    <span>@eq.Size cm</span>
-                                    @if (eq.Stiffness.HasValue)
-                                    {
-                                        <span>Flex @eq.Stiffness</span>
-                                    }
-                                    <span>@eq.DailyRate PLN/doba</span>
-                                </div>
-                            </div>
-                        }
-                    </div>
+                    @foreach (var group in _recommendation.MatchingEquipment.GroupBy(e => e.Category).OrderBy(g => g.Key))
+                    {
+                        <h4 class="equipment-group-title">@CategoryLabel(group.Key)</h4>
+                        <div class="equipment-list">
+                            @foreach (var eq in group)
+                            {
+                                var eqId = eq.Id;
+                                var isSelected = SelectedEquipmentIds.Contains(eqId);
+                                <button type="button"
+                                        class="equipment-card @(isSelected ? "selected" : "")"
+                                        onclick="wizardBridge.selectEquipment(@eqId)">
+                                    <div class="eq-header">
+                                        <span class="eq-category">@eq.Category</span>
+                                        @if (isSelected)
+                                        {
+                                            <span class="eq-selected-badge">✓ Wybrano</span>
+                                        }
+                                    </div>
+                                    <h4>@eq.Brand @eq.Model</h4>
+                                    <div class="eq-details">
+                                        <span>@eq.Size @SizeUnit(eq.Category)</span>
+                                        @if (eq.Stiffness.HasValue)
+                                        {
+                                            <span>Flex @eq.Stiffness</span>
+                                        }
+                                        <span>@eq.DailyRate PLN/doba</span>
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
                 }
 
                 <div class="wizard-nav">
-                    <button class="btn-secondary" type="button" @onclick="() => CurrentStep = 1">← Wróć</button>
+                    <button class="btn-secondary" type="button" onclick="wizardBridge.goToStep1()">← Wróć</button>
                     <button class="btn-primary"
                             type="button"
-                            @onclick="GoToStep3"
+                            onclick="wizardBridge.goToStep3()"
                             disabled="@(!SelectedEquipmentIds.Any())">
                         Dalej – Płatność →
                     </button>
@@ -458,19 +464,72 @@
         finally
         {
             _isCalculating = false;
+            AutoSelectRecommendedEquipment();
             StateHasChanged();
         }
     }
 
     private void GoToStep3() => CurrentStep = 3;
 
-    private void ToggleEquipment(int id)
+    private void AutoSelectRecommendedEquipment()
     {
-        if (!SelectedEquipmentIds.Remove(id))
-            SelectedEquipmentIds.Add(id);
+        SelectedEquipmentIds.Clear();
+        if (_recommendation is null) return;
 
+        foreach (var group in _recommendation.MatchingEquipment.GroupBy(e => e.Category))
+            SelectedEquipmentIds.Add(group.First().Id);
+    }
+
+    private void SelectEquipment(Equipment eq)
+    {
+        var sameCategoryIds = _recommendation!.MatchingEquipment
+            .Where(e => e.Category == eq.Category)
+            .Select(e => e.Id)
+            .ToHashSet();
+
+        foreach (var id in sameCategoryIds)
+            SelectedEquipmentIds.Remove(id);
+
+        SelectedEquipmentIds.Add(eq.Id);
         StateHasChanged();
     }
+
+    [JSInvokable]
+    public Task JsSelectEquipment(int equipmentId)
+    {
+        var eq = _recommendation?.MatchingEquipment.FirstOrDefault(e => e.Id == equipmentId);
+        if (eq is not null)
+            SelectEquipment(eq);
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task JsGoToStep1()
+    {
+        CurrentStep = 1;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task JsGoToStep3()
+    {
+        GoToStep3();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private static string CategoryLabel(EquipmentCategory c) => c switch
+    {
+        EquipmentCategory.Skis => "⛷️ Narty",
+        EquipmentCategory.Poles => "🎿 Kijki",
+        EquipmentCategory.Boots => "👢 Buty",
+        _ => c.ToString()
+    };
+
+    private static string SizeUnit(EquipmentCategory c) => c switch
+    {
+        EquipmentCategory.Boots => "EU",
+        _ => "cm"
+    };
 
     private async Task ConfirmBookingAsync()
     {
@@ -498,33 +557,3 @@
         StateHasChanged();
     }
 }
-
-@* JavaScript bridge: native onclick → .NET via DotNetObjectReference *@
-<script>
-    // Called once after first render with the .NET component reference
-    window.wizardBridgeInit = function(dotNetRef) {
-        window.wizardBridge = {
-            _ref: dotNetRef,
-            setStyle: function(val) { this._ref.invokeMethodAsync('JsSetStyle', val); },
-            setSkill: function(val) { this._ref.invokeMethodAsync('JsSetSkill', val); },
-            goToStep2: function() { this._ref.invokeMethodAsync('JsGoToStep2'); }
-        };
-    };
-
-    // Initialise a no-op stub so clicks before init don't throw
-    window.wizardBridge = {
-        setStyle: function() {},
-        setSkill: function() {},
-        goToStep2: function() {}
-    };
-
-    function showPopup(title, message) {
-        document.getElementById('popup-title').innerText = title;
-        document.getElementById('popup-message').innerText = message;
-        document.getElementById('custom-popup').style.display = 'flex';
-    }
-
-    function hidePopup() {
-        document.getElementById('custom-popup').style.display = 'none';
-    }
-</script>

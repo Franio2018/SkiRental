@@ -67,7 +67,8 @@ public sealed class EfUserRepository : IUserRepository
     public async Task<UserProfile?> GetProfileByUserIdAsync(int appUserId, CancellationToken ct = default)
     {
         var user = await _db.AppUsers
-            .Include(u => u.Profile)
+            .Include(u => u.Profile!)
+                .ThenInclude(p => p.Rentals)
             .FirstOrDefaultAsync(u => u.Id == appUserId, ct);
         return user?.Profile;
     }

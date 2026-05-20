@@ -3,19 +3,24 @@
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
 @using Microsoft.AspNetCore.Components
+@using SkiRental.App.Services
 
 @inject IRentalRepository RentalRepository
 @inject IEquipmentRepository EquipmentRepository
 @inject INotificationService NotificationService
 @inject NavigationManager Navigation
 @inject IUserRepository UserRepository
+@inject ToastService Toasts
 
 <PageTitle>Manage Orders - SkiRental</PageTitle>
 
-<div class="manage-orders-page">
+<div class="manage-orders-page page-container">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / Zarządzanie zamówieniami
+    </nav>
     <div class="page-header">
-        <h1>Manage Orders</h1>
-        <p class="subtitle">View and manage all customer rental orders</p>
+        <h1>Zarządzanie zamówieniami</h1>
+        <p class="subtitle">Wszystkie rezerwacje i przypisany sprzęt</p>
     </div>
 
     <div class="filters-section">
@@ -45,8 +50,10 @@
                 <label for="search-query">Search:</label>
                 <input type="text"
                        id="search-query"
-                       @bind="SearchQuery"
-                       placeholder="Customer name, QR code, or rental ID..."
+                       value="@SearchQuery"
+                       @oninput="OnSearchInput"
+                       @onkeydown="OnSearchKeyDown"
+                       placeholder="Klient, kod QR lub nr rezerwacji..."
                        class="search-input" />
             </div>
 
@@ -306,8 +313,8 @@
 
         try
         {
-            var fromDate = _dateFrom ?? DateTime.Now.AddMonths(-1);
-            var toDate = _dateTo ?? DateTime.Now.AddMonths(1);
+            var fromDate = _dateFrom ?? new DateTime(2024, 11, 1);
+            var toDate = _dateTo ?? DateTime.Now.AddYears(1);
 
             _allRentals = (await RentalRepository.GetAllRentalsAsync(fromDate, toDate))
                 .ToList();
@@ -316,8 +323,7 @@
         }
         catch (Exception ex)
         {
-            // TODO: Show error message
-            Console.WriteLine($"Error loading rentals: {ex.Message}");
+            Toasts.Error($"Błąd wczytywania zamówień: {ex.Message}");
         }
         finally
         {
@@ -338,9 +344,11 @@
         // Apply search filter
         if (!string.IsNullOrWhiteSpace(SearchQuery))
         {
-            _filteredRentals = _filteredRentals.Where(r => 
+            _filteredRentals = _filteredRentals.Where(r =>
                 r.Id.ToString().Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ||
-                r.QrCode.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase));
+                (r.QrCode?.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (r.Customer?.FirstName?.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (r.Customer?.LastName?.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
         // Apply sorting
@@ -356,6 +364,7 @@
         };
 
         _filteredRentals = _filteredRentals.ToList();
+        StateHasChanged();
     }
 
     private void SortBy(string column)
@@ -539,14 +548,25 @@
         }
         catch (Exception ex)
         {
-            // TODO: Show error message
-            Console.WriteLine($"Error processing override: {ex.Message}");
+            Toasts.Error($"Błąd nadpisania: {ex.Message}");
         }
     }
 
     private async Task RefreshData()
     {
         await LoadRentalsAsync();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        SearchQuery = e.Value?.ToString() ?? string.Empty;
+        ApplyFiltersAndSort();
+    }
+
+    private void OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            ApplyFiltersAndSort();
     }
 
     private static string GetDurationText(Rental rental)
@@ -568,5 +588,4 @@
         EquipmentCategory.Boots => " EU",
         _ => ""
     };
-}
 }

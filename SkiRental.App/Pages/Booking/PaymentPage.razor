@@ -314,26 +314,14 @@
                     }
                     blikCode = _blikCode;
                 }
-                else // Card
+                else // Card — PayU pre-authorization (capture on pickup/return)
                 {
-                    // Dla kart używamy preautoryzacji PayU –
-                    // finalne pobranie nastąpi przy wydaniu sprzętu.
-                    // TODO: Implement InitiateCardPreauthorizationAsync in BookingService
-                    // var preAuthResult = await BookingService.InitiateCardPreauthorizationAsync(
-                    //     _gearSelection.TotalAmount,
-                    //     _cardNumber, _cardExpiry, _cardCvv,
-                    //     _gearSelection.StartTime);
-
-                    // if (!preAuthResult.IsSuccess)
-                    // {
-                    //     _paymentError = $"Błąd płatności kartą: {preAuthResult.ErrorMessage}";
-                    //     return;
-                    // }
-                    // isCardPreauth = true;
-                    
-                    // Temporary fallback - treat card as spot payment for now
-                    _paymentError = "Płatność kartą online jest w trakcie implementacji. Wybierz płatność BLIK lub na miejscu.";
-                    return;
+                    if (!IsCardValid)
+                    {
+                        _paymentError = "Sprawdź numer karty, datę ważności i CVV.";
+                        return;
+                    }
+                    isCardPreauth = true;
                 }
             }
 
@@ -344,7 +332,8 @@
                 StartTime = _gearSelection.StartTime,
                 EndTime = _gearSelection.EndTime,
                 BlikCode = blikCode,
-                Notes = isCardPreauth ? "Preautoryzacja kartą" : null
+                UseCardPreauth = isCardPreauth,
+                Notes = isCardPreauth ? "Preautoryzacja kartą PayU" : null
             };
 
             var result = await BookingService.CreateBookingAsync(request);

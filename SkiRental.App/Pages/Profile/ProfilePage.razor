@@ -52,7 +52,7 @@
                     }
                     <div class="avatar-overlay"><span>✏️</span></div>
                 </div>
-                <input type="file" accept="image/*" @onchange="HandleFileUpload" style="display:none" id="avatar-input" />
+                <InputFile OnChange="OnAvatarSelected" accept="image/*" style="display:none" id="avatar-input" />
             </div>
 
             <div class="profile-info">
@@ -189,13 +189,6 @@
                             </select>
                         </div>
                     </div>
-                    @if (Profile.Height > 0 && Profile.Weight > 0)
-                    {
-                        <div class="bmi-display @(Profile.IsBmiNormal ? "bmi-ok" : Profile.IsUnderweight ? "bmi-low" : "bmi-high")">
-                            <span>BMI: @Profile.Bmi</span>
-                            <span>@(Profile.IsBmiNormal ? "✅ w normie" : Profile.IsUnderweight ? "⚠️ niedowaga" : "⚠️ nadwaga")</span>
-                        </div>
-                    }
                     <button class="btn-primary" @onclick="SaveProfile" disabled="@_saving">
                         @(_saving ? "Zapisuję..." : "Zapisz zmiany")
                     </button>
@@ -236,8 +229,8 @@
                                 <div class="stat-label">Wypożyczenia</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value">@_profile.TotalSpent.ToString("N0") zł</div>
-                                <div class="stat-label">Łącznie wydano</div>
+                                <div class="stat-value">@_profile.TotalSkiDays</div>
+                                <div class="stat-label">@SkiDaysLabel(_profile.TotalSkiDays)</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value">
@@ -356,12 +349,30 @@
         }
     }
 
-    private void TriggerFileUpload() { /* JS interop needed — planned for v2 */ }
-
-    private async Task HandleFileUpload(ChangeEventArgs e)
+    private async Task TriggerFileUpload()
     {
-        // TODO: wire up to ProfilePictureService with proper JS interop
         await Task.CompletedTask;
+    }
+
+    private async Task OnAvatarSelected(InputFileChangeEventArgs e)
+    {
+        if (Auth.CurrentUserId is null || _profile is null) return;
+        var file = e.File;
+        if (file.Size > 5 * 1024 * 1024) { _saveError = "Maksymalny rozmiar zdjęcia to 5 MB."; return; }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            var fileName = await ProfilePictureSvc.UploadProfilePictureAsync(
+                Auth.CurrentUserId.Value, stream, file.Name);
+            _profile.ProfileImagePath = fileName;
+            _profile = await UserSvc.SaveProfileAsync(Auth.CurrentUserId.Value, _profile);
+            _saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            _saveError = ex.Message;
+        }
     }
 
     private string GetProfileImageUrl()
@@ -375,5 +386,11 @@
         AppRole.Owner  => "Właściciel",
         AppRole.Worker => "Pracownik",
         _              => "Klient"
+    };
+
+    private static string SkiDaysLabel(int days) => days switch
+    {
+        1 => "dzień na nartach",
+        _ => "dni na nartach"
     };
 }

@@ -1,4 +1,10 @@
 @page "/notifications"
+@using SkiRental.App.Services
+@using SkiRental.Domain.Models
+@using SkiRental.Logic.Services
+@inject AuthenticationService Auth
+@inject NotificationInboxService Inbox
+@inject NavigationManager Navigation
 
 <PageTitle>Powiadomienia | SkiRental</PageTitle>
 
@@ -8,10 +14,65 @@
     </nav>
 
     <div class="wizard-step">
-        <h2>🔔 Powiadomienia</h2>
-        <p class="step-description">
-            Ten ekran jest jeszcze w przygotowaniu.
-        </p>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2>🔔 Powiadomienia</h2>
+            @if (_items.Any(n => !n.IsRead))
+            {
+                <button class="btn-secondary" type="button" @onclick="MarkAllRead">Oznacz wszystkie jako przeczytane</button>
+            }
+        </div>
+
+        @if (_loading)
+        {
+            <p>Ładowanie…</p>
+        }
+        else if (_items.Count == 0)
+        {
+            <p class="step-description">Brak powiadomień.</p>
+        }
+        else
+        {
+            <ul class="notification-list">
+                @foreach (var n in _items)
+                {
+                    <li class="notification-item @(n.IsRead ? "read" : "unread")" @onclick="() => MarkOne(n)">
+                        <div class="notification-title">@n.Title</div>
+                        <div class="notification-meta">@n.Category · @n.CreatedAt.ToLocalTime():g</div>
+                        <p>@n.Message</p>
+                    </li>
+                }
+            </ul>
+        }
     </div>
 </div>
 
+@code {
+    private List<AppNotification> _items = [];
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Auth.IsAuthenticated || Auth.CurrentUserId is null)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/notifications");
+            return;
+        }
+
+        _items = (await Inbox.GetForUserAsync(Auth.CurrentUserId.Value)).ToList();
+        _loading = false;
+    }
+
+    private async Task MarkOne(AppNotification n)
+    {
+        if (!n.IsRead)
+            await Inbox.MarkReadAsync(n.Id);
+        n.IsRead = true;
+    }
+
+    private async Task MarkAllRead()
+    {
+        if (Auth.CurrentUserId is null) return;
+        await Inbox.MarkAllReadAsync(Auth.CurrentUserId.Value);
+        foreach (var n in _items) n.IsRead = true;
+    }
+}

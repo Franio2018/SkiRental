@@ -121,10 +121,10 @@ public sealed class AuthenticationService : IAuthenticationService
         _logger.LogInformation("User {Username} logged in (role={Role})", user.Username, user.AppRole);
         AuthenticationChanged?.Invoke();
 
-        // TODO: For "Remember Me" on mobile, persist the JWT token to
-        //       SecureStorage (Microsoft.Maui.Storage.SecureStorage) so it
-        //       survives app restarts. That requires token refresh logic —
-        //       planned for the API-based auth phase.
+        if (rememberMe)
+            await SecureStorage.SetAsync("skirental_jwt", jwtToken);
+        else
+            SecureStorage.Remove("skirental_jwt");
 
         return new LoginResult(true, "Logowanie pomyślne.", jwtToken);
     }
@@ -133,9 +133,41 @@ public sealed class AuthenticationService : IAuthenticationService
     // Logout
     // ═══════════════════════════════════════════════════════════════════════
 
+    public async Task TryRestoreSessionAsync(CancellationToken ct = default)
+    {
+        if (IsAuthenticated) return;
+
+        var token = await SecureStorage.GetAsync("skirental_jwt");
+        if (string.IsNullOrEmpty(token)) return;
+
+        var principal = _jwtTokenService.ValidateToken(token);
+        if (principal is null)
+        {
+            SecureStorage.Remove("skirental_jwt");
+            return;
+        }
+
+        var userIdClaim = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId)) return;
+
+        using var scope = _scopeFactory.CreateScope();
+        var userRepo = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var user = await userRepo.GetByIdAsync(userId, ct);
+        if (user is null || user.IsCurrentlyLocked) return;
+
+        IsAuthenticated = true;
+        CurrentUsername = user.Username;
+        CurrentUserId = user.Id;
+        CurrentRole = user.AppRole;
+        CurrentJwtToken = token;
+        AuthenticationChanged?.Invoke();
+        _logger.LogInformation("Session restored for {Username}", user.Username);
+    }
+
     public void Logout()
     {
         _logger.LogInformation("User {Username} logged out", CurrentUsername);
+        SecureStorage.Remove("skirental_jwt");
 
         IsAuthenticated = false;
         CurrentUsername = null;

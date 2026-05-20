@@ -112,6 +112,19 @@ public class UserProfile
     [NotMapped]
     public decimal TotalSpent => Rentals?.Where(r => r.PaymentStatus == PaymentStatus.Paid).Sum(r => r.TotalAmount) ?? 0;
 
+    /// <summary>Laczna liczba dni na nartach (suma dni ze wszystkich nieanulowanych wypozyczen).</summary>
+    [NotMapped]
+    public int TotalSkiDays => Rentals?
+        .Where(r => r.Status != RentalStatus.Cancelled)
+        .Sum(RentalSkiDays) ?? 0;
+
+    private static int RentalSkiDays(Rental r)
+    {
+        var end = r.ActualReturnTime ?? r.EndTime;
+        if (end < r.StartTime) return 0;
+        return Math.Max(1, (end.Date - r.StartTime.Date).Days + 1);
+    }
+
     /// <summary>Ulubiona kategoria sprzetu (najczesciej wypozyczana).</summary>
     [NotMapped]
     public EquipmentCategory? FavoriteEquipmentCategory => Rentals?

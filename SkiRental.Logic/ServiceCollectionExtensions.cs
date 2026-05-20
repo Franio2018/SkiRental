@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SkiRental.Logic.Interfaces;
+using SkiRental.Logic.Options;
 using SkiRental.Logic.Services;
 
 namespace SkiRental.Logic;
@@ -20,8 +22,13 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddSkiRentalServices(
         this IServiceCollection services,
         string? connectionString = null,
-        bool useInMemory = false)
+        bool useInMemory = false,
+        IConfiguration? configuration = null)
     {
+        if (configuration is not null)
+            services.Configure<SkiRentalOptions>(configuration.GetSection(SkiRentalOptions.SectionName));
+        else
+            services.Configure<SkiRentalOptions>(_ => { });
         // ── EF Core DbContext ──────────────────────────────────────────────────
         if (useInMemory)
         {
@@ -55,6 +62,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRecommendationOrchestrator, RecommendationOrchestrator>();
         services.AddScoped<IGearSwapService, GearSwapService>();
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<RentalRulesService>();
+        services.AddScoped<NotificationInboxService>();
+        services.AddScoped<AnalyticsExportService>();
 
         return services;
     }

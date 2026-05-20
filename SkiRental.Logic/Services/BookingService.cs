@@ -19,6 +19,8 @@ public sealed class BookingService
     private readonly IRentalRepository    _rentalRepo;
     private readonly IEquipmentRepository _equipmentRepo;
     private readonly IPaymentProvider     _paymentProvider;
+    private readonly RentalRulesService   _rules;
+    private readonly NotificationInboxService _notifications;
     private readonly SkiRentalDbContext  _db;
     private readonly ILogger<BookingService> _logger;
 
@@ -26,12 +28,16 @@ public sealed class BookingService
         IRentalRepository rentalRepo,
         IEquipmentRepository equipmentRepo,
         IPaymentProvider paymentProvider,
+        RentalRulesService rules,
+        NotificationInboxService notifications,
         SkiRentalDbContext db,
         ILogger<BookingService> logger)
     {
         _rentalRepo      = rentalRepo;
         _equipmentRepo   = equipmentRepo;
         _paymentProvider = paymentProvider;
+        _rules           = rules;
+        _notifications   = notifications;
         _db              = db;
         _logger          = logger;
     }
@@ -53,6 +59,10 @@ public sealed class BookingService
         CancellationToken ct = default)
     {
         _logger.LogInformation("Creating booking for customer {CustomerId}", request.CustomerProfileId);
+
+        var windowCheck = _rules.ValidateBookingWindow(request.StartTime, request.EndTime);
+        if (!windowCheck.IsValid)
+            return BookingResult.Failure(windowCheck.Error!);
 
         // Używamy jawnej transakcji żeby sprawdzenie + zmiana statusu były atomowe
         await using var tx = await _db.Database.BeginTransactionAsync(
@@ -114,7 +124,7 @@ public sealed class BookingService
 
             rental = await _rentalRepo.CreateAsync(rental, ct);
 
-            // ── 4. Opcjonalna płatność BLIK ──────────────────────────────────────
+            // ── 4. Opcjonalna płatność BLIK lub preautoryzacja karty ─────────────
             if (request.BlikCode is not null)
             {
                 var payResult = await _paymentProvider.InitiateBlikPayment(
@@ -131,16 +141,45 @@ public sealed class BookingService
                 else
                 {
                     _logger.LogWarning("BLIK payment failed: {Error}", payResult.ErrorMessage);
-                    // Płatność nieudana – zwróć sprzęt do Available i wycofaj transakcję
                     await tx.RollbackAsync(ct);
                     return BookingResult.Failure(
                         $"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
                         rental.Id, qrCode);
                 }
             }
+            else if (request.UseCardPreauth)
+            {
+                var preAuth = await _paymentProvider.PreauthorizePayment(
+                    totalAmount, rental.Id.ToString(), BuildOrderDescription(rental));
+
+                if (preAuth.IsSuccess)
+                {
+                    rental.PaymentStatus        = PaymentStatus.Preauthorized;
+                    rental.PayUOrderId          = preAuth.ExternalTransactionId;
+                    rental.IsPreauthorized      = true;
+                    rental.PreauthorizedAmount  = totalAmount;
+                    await _rentalRepo.UpdateAsync(rental, ct);
+                }
+                else
+                {
+                    await tx.RollbackAsync(ct);
+                    return BookingResult.Failure(
+                        $"Preautoryzacja karty nie powiodła się: {preAuth.ErrorMessage}",
+                        rental.Id, qrCode);
+                }
+            }
 
             await tx.CommitAsync(ct);
             _logger.LogInformation("Booking {RentalId} created. QR={QrCode}", rental.Id, qrCode);
+
+            await _notifications.AddAsync(
+                null,
+                "Nowa rezerwacja",
+                $"Rezerwacja #{rental.Id} – {totalAmount:N2} PLN. QR: {qrCode}",
+                "Booking",
+                rental.Id,
+                ct);
+
             return BookingResult.Success(rental.Id, qrCode, totalAmount);
         }
         catch
@@ -175,10 +214,9 @@ public sealed class BookingService
             return ActivationResult.Failure(
                 $"Wypożyczenie #{rentalId} ma status {rental.Status}. Aktywacja niemożliwa.");
 
-        // Check payment – cannot activate without payment (or explicit override)
+        // Spot payment: worker collects cash/card at pickup → mark paid on activation
         if (rental.PaymentStatus == PaymentStatus.Unpaid)
-            return ActivationResult.Failure(
-                "Brak płatności. Pobierz opłatę lub zarejstruj przedpłatę przed wydaniem sprzętu.");
+            rental.PaymentStatus = PaymentStatus.Paid;
 
         // Mark equipment as physically Rented
         foreach (var re in rental.RentalEquipments)
@@ -224,29 +262,54 @@ public sealed class BookingService
             await _equipmentRepo.UpdateStatusAsync(re.EquipmentId, EquipmentStatus.Available, ct);
         }
 
+        var returnTime = DateTime.UtcNow;
         rental.Status           = RentalStatus.Completed;
-        rental.ActualReturnTime = DateTime.UtcNow;
+        rental.ActualReturnTime = returnTime;
+
+        var lateFee = _rules.CalculateLateFee(rental.EndTime, returnTime, rental.TotalAmount);
+        var worstCondition = rental.RentalEquipments
+            .Where(re => re.ConditionAtReturn.HasValue)
+            .Select(re => re.ConditionAtReturn!.Value)
+            .DefaultIfEmpty(5)
+            .Min();
+        var damageFee = _rules.CalculateDamageSurcharge(rental.TotalAmount, worstCondition);
+        var extraCharges = lateFee + damageFee;
+        var captureAmount = rental.TotalAmount + extraCharges;
 
         // Capture pre-auth if applicable
         if (rental.IsPreauthorized && rental.PayUOrderId is not null)
         {
             var captureResult = await _paymentProvider.CapturePreauthorization(
-                rental.PayUOrderId, rental.TotalAmount);
+                rental.PayUOrderId, captureAmount);
             if (captureResult.IsSuccess)
                 rental.PaymentStatus = PaymentStatus.Paid;
+        }
+        else if (extraCharges > 0 && rental.PaymentStatus == PaymentStatus.Paid)
+        {
+            rental.TotalAmount += extraCharges;
         }
 
         await _rentalRepo.UpdateAsync(rental, ct);
 
         _logger.LogInformation("Return processed for rental {RentalId}", rental.Id);
 
-        // Flag if any equipment returned in poor condition (< 3)
         var damagedItems = rental.RentalEquipments
             .Where(re => re.ConditionAtReturn.HasValue && re.ConditionAtReturn < 3)
             .Select(re => re.EquipmentId)
             .ToList();
 
-        return ReturnResult.Success(rental.Id, rental.ActualReturnTime.Value, damagedItems);
+        if (lateFee > 0 || damageFee > 0)
+        {
+            await _notifications.AddAsync(
+                null,
+                "Dopłaty przy zwrocie",
+                $"Wypożyczenie #{rental.Id}: opóźnienie {lateFee:N2} PLN, uszkodzenia {damageFee:N2} PLN.",
+                "Return",
+                rental.Id,
+                ct);
+        }
+
+        return ReturnResult.Success(rental.Id, returnTime, damagedItems, lateFee, damageFee);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -341,6 +404,7 @@ public record CreateBookingRequest
     public DateTime StartTime { get; init; }
     public DateTime EndTime { get; init; }
     public string? BlikCode { get; init; }
+    public bool UseCardPreauth { get; init; }
     public string? Notes { get; init; }
 }
 
@@ -365,11 +429,21 @@ public record ReturnResult
     public int? RentalId { get; init; }
     public DateTime? ReturnTime { get; init; }
     public string? ErrorMessage { get; init; }
-    /// <summary>Equipment IDs returned in poor condition (condition &lt; 3). May trigger damage surcharge.</summary>
     public IReadOnlyList<int> DamagedEquipmentIds { get; init; } = [];
+    public decimal LateFeeAmount { get; init; }
+    public decimal DamageSurchargeAmount { get; init; }
 
-    public static ReturnResult Success(int id, DateTime t, IReadOnlyList<int> damaged) =>
-        new() { IsSuccess = true, RentalId = id, ReturnTime = t, DamagedEquipmentIds = damaged };
+    public static ReturnResult Success(int id, DateTime t, IReadOnlyList<int> damaged,
+        decimal lateFee = 0, decimal damageFee = 0) =>
+        new()
+        {
+            IsSuccess = true,
+            RentalId = id,
+            ReturnTime = t,
+            DamagedEquipmentIds = damaged,
+            LateFeeAmount = lateFee,
+            DamageSurchargeAmount = damageFee
+        };
 
     public static ReturnResult Failure(string msg) =>
         new() { IsSuccess = false, ErrorMessage = msg };

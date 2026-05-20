@@ -1,0 +1,80 @@
+@using SkiRental.App.Services
+@using SkiRental.Domain.Models
+@inject AuthenticationService Auth
+@inject NavigationManager Navigation
+
+@if (_allowed)
+{
+    <RouteView RouteData="@RouteData" DefaultLayout="@DefaultLayout" />
+}
+else if (_redirecting)
+{
+    <p class="auth-redirect-msg">Przekierowanie…</p>
+}
+else
+{
+    <p class="auth-redirect-msg">Brak dostępu.</p>
+}
+
+@code {
+    [Parameter] public RouteData RouteData { get; set; } = default!;
+    [Parameter] public Type? DefaultLayout { get; set; }
+
+    private bool _allowed;
+    private bool _redirecting;
+
+    protected override void OnParametersSet()
+    {
+        _redirecting = false;
+        _allowed = true;
+
+        var path = GetPath(RouteData);
+        var (requiredRole, needsAuth) = GetPolicy(path);
+
+        if (!needsAuth)
+            return;
+
+        if (!Auth.IsAuthenticated)
+        {
+            _allowed = false;
+            _redirecting = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(path)}");
+            return;
+        }
+
+        _allowed = requiredRole switch
+        {
+            AppRole.Owner => Auth.IsOwner,
+            AppRole.Worker => Auth.IsWorker,
+            _ => true
+        };
+
+        if (!_allowed)
+        {
+            _redirecting = true;
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private static string GetPath(RouteData routeData)
+    {
+        if (routeData.RouteValues.TryGetValue("page", out var page) && page is string s && !string.IsNullOrEmpty(s))
+            return "/" + s.TrimStart('/');
+
+        var template = routeData.Template ?? "/";
+        return string.IsNullOrEmpty(template) ? "/" : template.TrimEnd('/');
+    }
+
+    private static (AppRole? Role, bool NeedsAuth) GetPolicy(string path) => path switch
+    {
+        "/manage-orders" or "/manage-customers" or "/employee" or "/analytics"
+            => (AppRole.Worker, true),
+        "/equipment-management" or "/staff-management"
+            => (AppRole.Owner, true),
+        "/booking" or "/gear-review" or "/payment" or "/confirmation"
+            or "/recommendation-loading" or "/my-rentals" or "/profile" or "/notifications"
+            or "/calendar-booking"
+            => (null, true),
+        _ => (null, false)
+    };
+}

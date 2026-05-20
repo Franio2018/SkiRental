@@ -5,6 +5,7 @@
 @using SkiRental.Logic.Services
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
+@using SkiRental.App.Services
 
 
 @inject IUserRepository UserRepository
@@ -12,13 +13,17 @@
 @inject NavigationManager Navigation
 @inject UserService UserService
 @inject INotificationService NotificationService
+@inject ToastService Toasts
 
 <PageTitle>Manage Customers - SkiRental</PageTitle>
 
-<div class="manage-customers-page">
+<div class="manage-customers-page page-container">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / Zarządzanie klientami
+    </nav>
     <div class="page-header">
-        <h1>Manage Customers</h1>
-        <p class="subtitle">View and manage all customer profiles and rental history</p>
+        <h1>Zarządzanie klientami</h1>
+        <p class="subtitle">Profile klientów i historia wypożyczeń</p>
     </div>
 
     <div class="filters-section">
@@ -27,8 +32,10 @@
                 <label for="search-query">Search Customers:</label>
                 <input type="text" 
                        id="search-query"
-                       @bind="SearchQuery" 
-                       placeholder="Name, email, or phone..."
+                       value="@SearchQuery"
+                       @oninput="OnSearchInput"
+                       @onkeydown="OnSearchKeyDown"
+                       placeholder="Imię, nazwisko, login lub telefon..."
                        class="search-input" />
             </div>
 
@@ -73,7 +80,7 @@
                 <tbody>
                     @foreach (var customer in _filteredCustomers)
                     {
-                        <tr class="customer-row" @onclick="() => SelectCustomer(customer)">
+                        <tr class="customer-row">
                             <td>@customer.Id</td>
                             <td>
                                 <div class="customer-name">
@@ -95,22 +102,22 @@
                                 @(customer.LastRentalDate == DateTime.MinValue ? "Never" : customer.LastRentalDate.ToString("dd.MM.yyyy"))
                             </td>
                             <td>
-                                <div class="action-buttons">
-                                    <button class="btn-sm btn-primary" @onclick="() => SelectCustomer(customer)">
+                                <div class="action-buttons" @onclick:stopPropagation="true">
+                                    <button type="button" class="btn-sm btn-primary" @onclick="() => SelectCustomer(customer)">
                                         View
                                     </button>
-                                    <button class="btn-sm btn-secondary" @onclick="() => EditCustomer(customer)">
+                                    <button type="button" class="btn-sm btn-secondary" @onclick="() => EditCustomer(customer)">
                                         Edit
                                     </button>
                                     @if (customer.IsActive)
                                     {
-                                        <button class="btn-sm btn-warning" @onclick="() => DeactivateCustomer(customer)">
+                                        <button type="button" class="btn-sm btn-warning" @onclick="() => DeactivateCustomer(customer)">
                                             Deactivate
                                         </button>
                                     }
                                     else
                                     {
-                                        <button class="btn-sm btn-success" @onclick="() => ActivateCustomer(customer)">
+                                        <button type="button" class="btn-sm btn-success" @onclick="() => ActivateCustomer(customer)">
                                             Activate
                                         </button>
                                     }
@@ -153,15 +160,16 @@
 }
 
 <!-- Customer Details Modal -->
-@if (_selectedCustomer != null)
+@if (_selectedCustomer != null && _editingCustomer != null)
 {
     <div class="modal-overlay" @onclick="CloseDetailsModal">
-        <div class="modal-content customer-details" @onclick:stopPropagation>
+        <div class="modal-content customer-details" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h2>Customer Details</h2>
-                <button class="close-btn" @onclick="CloseDetailsModal">×</button>
+                <h2>Szczegóły klienta</h2>
+                <button type="button" class="close-btn" @onclick="CloseDetailsModal">×</button>
             </div>
 
+            <div class="modal-body-scroll">
             <div class="details-tabs">
                 <button class="tab-btn @(_activeTab == "profile" ? "active" : "")"
                         @onclick="ShowProfileTab">
@@ -224,7 +232,7 @@
                                 </span>
                             </div>
                             <div class="registration-info">
-                                <span>Registered: @_selectedCustomer?.CreatedAt:dd.MM.yyyy</span>
+                                <span>Registered: @_selectedCustomer.CreatedAt.ToString("dd.MM.yyyy")</span>
                             </div>
                         </div>
                     </div>
@@ -327,15 +335,15 @@
             </div>
 
             <div class="modal-actions">
-                <button class="btn-secondary" @onclick="CloseDetailsModal">
-                    Close
+                <button type="button" class="btn-secondary" @onclick="CloseDetailsModal">
+                    Zamknij
                 </button>
-                <button class="btn-primary" @onclick="SaveCustomerChanges" disabled="@(!HasChanges)">
-                    Save Changes
+                <button type="button" class="btn-primary" @onclick="SaveCustomerChanges" disabled="@(!HasChanges)">
+                    Zapisz zmiany
                 </button>
             </div>
         </div>
-    }
+    </div>
 }
 
 @code {
@@ -388,19 +396,26 @@
 
         try
         {
-            // Get all users and their profiles
             var users = await UserRepository.GetAllAsync();
-            var customerIds = users.Select(u => u.Id).ToList();
+            var customerUsers = users.Where(u => u.AppRole == AppRole.Customer).ToList();
 
-            // Single grouped query instead of N+1 individual queries
-            var rentalSummaries = await RentalRepository.GetRentalSummariesByCustomerIdsAsync(customerIds);
+            var profileIds = new List<int>();
+            foreach (var user in customerUsers)
+            {
+                var p = await UserRepository.GetProfileByUserIdAsync(user.Id);
+                if (p is not null)
+                    profileIds.Add(p.Id);
+            }
 
+            var rentalSummaries = await RentalRepository.GetRentalSummariesByCustomerIdsAsync(profileIds);
             var customers = new List<CustomerSummary>();
 
-            foreach (var user in users)
+            foreach (var user in customerUsers)
             {
                 var profile = await UserRepository.GetProfileByUserIdAsync(user.Id);
-                var summary = rentalSummaries.GetValueOrDefault(user.Id, new CustomerRentalSummary());
+                var summary = profile is not null
+                    ? rentalSummaries.GetValueOrDefault(profile.Id, new CustomerRentalSummary())
+                    : new CustomerRentalSummary();
 
                 customers.Add(new CustomerSummary
                 {
@@ -423,8 +438,7 @@
         }
         catch (Exception ex)
         {
-            // TODO: Show error message
-            Console.WriteLine($"Error loading customers: {ex.Message}");
+            Toasts.Error($"Błąd wczytywania klientów: {ex.Message}");
         }
         finally
         {
@@ -454,7 +468,7 @@
         }
 
         // Apply sorting
-        _filteredCustomers = SortColumn switch
+        var sorted = SortColumn switch
         {
             "Id" => SortAscending ? _filteredCustomers.OrderBy(c => c.Id) : _filteredCustomers.OrderByDescending(c => c.Id),
             "Name" => SortAscending ? _filteredCustomers.OrderBy(c => c.FirstName).ThenBy(c => c.LastName) : _filteredCustomers.OrderByDescending(c => c.FirstName).ThenByDescending(c => c.LastName),
@@ -463,8 +477,11 @@
             "TotalRentals" => SortAscending ? _filteredCustomers.OrderBy(c => c.TotalRentals) : _filteredCustomers.OrderByDescending(c => c.TotalRentals),
             "TotalSpent" => SortAscending ? _filteredCustomers.OrderBy(c => c.TotalSpent) : _filteredCustomers.OrderByDescending(c => c.TotalSpent),
             "LastRental" => SortAscending ? _filteredCustomers.OrderBy(c => c.LastRentalDate) : _filteredCustomers.OrderByDescending(c => c.LastRentalDate),
-            _ => _filteredCustomers
+            _ => _filteredCustomers.OrderBy(c => c.Id)
         };
+
+        _filteredCustomers = sorted.ToList();
+        StateHasChanged();
 
         _filteredCustomers = _filteredCustomers.ToList();
     }
@@ -507,7 +524,8 @@
         _selectedCustomer = customer;
         _editingCustomer = CreateEditableCustomer(customer);
         _activeTab = "profile";
-        _ = LoadCustomerRentals(customer.Id);
+        if (customer.Profile?.Id is int profileId)
+            _ = LoadCustomerRentals(profileId);
     }
 
     private async Task LoadCustomerRentals(int customerId)
@@ -527,7 +545,7 @@
     {
         return new UserProfile
         {
-            Id = customer.Id,
+            Id = customer.Profile?.Id ?? 0,
             FirstName = customer.FirstName ?? string.Empty,
             LastName = customer.LastName ?? string.Empty,
             Email = customer.Email,
@@ -568,8 +586,7 @@
         }
         catch (Exception ex)
         {
-            // TODO: Show error message
-            Console.WriteLine($"Error saving customer: {ex.Message}");
+            Toasts.Error($"Błąd zapisu klienta: {ex.Message}");
         }
     }
 
@@ -579,22 +596,26 @@
         _activeTab = "profile";
     }
 
-    private async Task DeactivateCustomer(CustomerSummary customer)
+    private Task DeactivateCustomer(CustomerSummary customer)
     {
+        CloseDetailsModal();
         _pendingCustomer = customer;
         _pendingActivation = false;
         _confirmationTitle = "Deactivate Account";
-        _confirmationMessage = $"Are you sure you want to deactivate {customer.FirstName} {customer.LastName}'s account? They will not be able to log in or make new bookings.";
+        _confirmationMessage = $"Czy na pewno dezaktywować konto {customer.FirstName} {customer.LastName}? Klient nie będzie mógł się logować.";
         _showConfirmationModal = true;
+        return Task.CompletedTask;
     }
 
-    private async Task ActivateCustomer(CustomerSummary customer)
+    private Task ActivateCustomer(CustomerSummary customer)
     {
+        CloseDetailsModal();
         _pendingCustomer = customer;
         _pendingActivation = true;
         _confirmationTitle = "Activate Account";
         _confirmationMessage = $"Are you sure you want to activate {customer.FirstName} {customer.LastName}'s account? They will be able to log in and make bookings again.";
         _showConfirmationModal = true;
+        return Task.CompletedTask;
     }
 
     private void CloseConfirmationModal()
@@ -644,8 +665,7 @@
             }
             else
             {
-                // TODO: Show error message
-                Console.WriteLine($"Error: {result.ErrorMessage}");
+                Toasts.Error(result.ErrorMessage ?? "Operacja nie powiodła się.");
             }
         }
         catch (Exception ex)
@@ -668,6 +688,18 @@
     private async Task RefreshData()
     {
         await LoadCustomersAsync();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        SearchQuery = e.Value?.ToString() ?? string.Empty;
+        ApplyFiltersAndSort();
+    }
+
+    private void OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            ApplyFiltersAndSort();
     }
 
     private static decimal CalculateBMI(UserProfile profile)
@@ -702,5 +734,4 @@
         
         return $"{hours}h";
     }
-}
 }

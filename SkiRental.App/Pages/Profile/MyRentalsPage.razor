@@ -1,0 +1,112 @@
+@page "/my-rentals"
+@using SkiRental.Domain.Enums
+@using SkiRental.Domain.Models
+@using SkiRental.Logic.Interfaces
+@using SkiRental.App.Services
+@inject AuthenticationService Auth
+@inject IUserRepository UserRepo
+@inject IRentalRepository RentalRepo
+@inject NavigationManager Navigation
+
+<PageTitle>Moje wypożyczenia | SkiRental</PageTitle>
+
+<div class="page-container my-rentals-page">
+    <nav class="breadcrumb">
+        <a href="/">Strona główna</a> / Moje wypożyczenia
+    </nav>
+
+    <h2>📋 Moje wypożyczenia</h2>
+
+    @if (_loading)
+    {
+        <p>Ładowanie…</p>
+    }
+    else if (_error is not null)
+    {
+        <div class="error-notice">@_error</div>
+    }
+    else if (_rentals.Count == 0)
+    {
+        <p>Brak wypożyczeń. <a href="/booking">Zarezerwuj sprzęt</a></p>
+    }
+    else
+    {
+        <div class="rental-list">
+            @foreach (var r in _rentals.OrderByDescending(x => x.StartTime))
+            {
+                <div class="rental-card status-@r.Status.ToString().ToLower()">
+                    <div class="rental-card-header">
+                        <strong>#@r.Id</strong>
+                        <span class="status-badge">@StatusLabel(r.Status)</span>
+                    </div>
+                    <p>@r.StartTime.ToLocalTime():g – @r.EndTime.ToLocalTime():g</p>
+                    <p>Kwota: <strong>@r.TotalAmount:N2 PLN</strong> · @PaymentLabel(r.PaymentStatus)</p>
+                    @if (!string.IsNullOrEmpty(r.QrCode))
+                    {
+                        <p class="qr-mini">QR: <code>@r.QrCode</code></p>
+                    }
+                    @if (r.Status == RentalStatus.Active && r.EndTime < DateTime.UtcNow)
+                    {
+                        <p class="warning-text">⚠️ Termin zwrotu minął – mogą obowiązywać opłaty za opóźnienie.</p>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<Rental> _rentals = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Auth.IsAuthenticated || Auth.CurrentUserId is null)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/my-rentals");
+            return;
+        }
+
+        try
+        {
+            var profile = await UserRepo.GetProfileByUserIdAsync(Auth.CurrentUserId.Value);
+            if (profile is null)
+            {
+                _error = "Uzupełnij profil, aby zobaczyć wypożyczenia.";
+                return;
+            }
+
+            var list = await RentalRepo.GetByCustomerIdAsync(profile.Id);
+            _rentals.AddRange(list);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string StatusLabel(RentalStatus s) => s switch
+    {
+        RentalStatus.Pending => "Oczekuje",
+        RentalStatus.Active => "Aktywne",
+        RentalStatus.Completed => "Zakończone",
+        RentalStatus.Cancelled => "Anulowane",
+        RentalStatus.Overdue => "Po terminie",
+        _ => s.ToString()
+    };
+
+    private static string PaymentLabel(PaymentStatus p) => p switch
+    {
+        PaymentStatus.Paid => "Opłacone",
+        PaymentStatus.Preauthorized => "Preautoryzacja",
+        PaymentStatus.Unpaid => "Nieopłacone",
+        PaymentStatus.Refunded => "Zwrócone",
+        PaymentStatus.Failed => "Błąd płatności",
+        _ => p.ToString()
+    };
+}

@@ -19,6 +19,7 @@ public sealed class SkiRentalDbContext : DbContext
     public DbSet<Rental>          Rentals          { get; set; } = null!;
     public DbSet<RentalEquipment> RentalEquipments { get; set; } = null!;
     public DbSet<Payment>         Payments         { get; set; } = null!;
+    public DbSet<AppNotification> AppNotifications { get; set; } = null!;
 
     // ── Fluent API ───────────────────────────────────────────────────────────
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -85,6 +86,13 @@ public sealed class SkiRentalDbContext : DbContext
              .HasForeignKey(re => re.EquipmentId);
         });
 
+        // ── AppNotification ───────────────────────────────────────────────────
+        modelBuilder.Entity<AppNotification>(b =>
+        {
+            b.HasIndex(n => n.AppUserId);
+            b.HasIndex(n => n.CreatedAt);
+        });
+
         // ── Payment ──────────────────────────────────────────────────────────
         modelBuilder.Entity<Payment>(b =>
         {
@@ -108,7 +116,13 @@ public sealed class SkiRentalDbContext : DbContext
             new Equipment { Id = 2, SerialNumber = "FISCH-CL-002", Brand = "Fischer", Model = "Twin Skin Pro", Category = Domain.Enums.EquipmentCategory.Skis, Size = 197m, Stiffness = 62, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Classic, YearOfProduction = 2023, DailyRate = 60m },
             new Equipment { Id = 3, SerialNumber = "SALOMON-SK-001", Brand = "Salomon", Model = "S/Race Skate Plus", Category = Domain.Enums.EquipmentCategory.Skis, Size = 182m, Stiffness = 62, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Skate, YearOfProduction = 2024, DailyRate = 70m },
             new Equipment { Id = 4, SerialNumber = "LEKI-CL-001", Brand = "Leki", Model = "Tour Stick Vario", Category = Domain.Enums.EquipmentCategory.Poles, Size = 150m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Classic, YearOfProduction = 2023, DailyRate = 20m },
-            new Equipment { Id = 5, SerialNumber = "LEKI-SK-001", Brand = "Leki", Model = "CC 450 Vario", Category = Domain.Enums.EquipmentCategory.Poles, Size = 155m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Skate, YearOfProduction = 2023, DailyRate = 20m }
+            new Equipment { Id = 5, SerialNumber = "LEKI-SK-001", Brand = "Leki", Model = "CC 450 Vario", Category = Domain.Enums.EquipmentCategory.Poles, Size = 155m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Skate, YearOfProduction = 2023, DailyRate = 20m },
+            new Equipment { Id = 6, SerialNumber = "SAL-BT-40", Brand = "Salomon", Model = "Prolink Access", Category = Domain.Enums.EquipmentCategory.Boots, Size = 40m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Classic, YearOfProduction = 2023, DailyRate = 35m },
+            new Equipment { Id = 7, SerialNumber = "SAL-BT-41", Brand = "Salomon", Model = "Prolink Access", Category = Domain.Enums.EquipmentCategory.Boots, Size = 41m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Classic, YearOfProduction = 2023, DailyRate = 35m },
+            new Equipment { Id = 8, SerialNumber = "SAL-BT-42", Brand = "Salomon", Model = "Prolink Access", Category = Domain.Enums.EquipmentCategory.Boots, Size = 42m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Combi, YearOfProduction = 2023, DailyRate = 35m },
+            new Equipment { Id = 9, SerialNumber = "SAL-BT-43", Brand = "Salomon", Model = "Prolink Access", Category = Domain.Enums.EquipmentCategory.Boots, Size = 43m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Combi, YearOfProduction = 2024, DailyRate = 35m },
+            new Equipment { Id = 10, SerialNumber = "FIS-BT-44", Brand = "Fischer", Model = "RC3 Classic", Category = Domain.Enums.EquipmentCategory.Boots, Size = 44m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Classic, YearOfProduction = 2024, DailyRate = 40m },
+            new Equipment { Id = 11, SerialNumber = "FIS-BT-45", Brand = "Fischer", Model = "RC3 Skate", Category = Domain.Enums.EquipmentCategory.Boots, Size = 45m, Status = Domain.Enums.EquipmentStatus.Available, CompatibleStyle = Domain.Enums.SkiStyle.Skate, YearOfProduction = 2024, DailyRate = 40m }
         );
 
         // ── Demo accounts seed ────────────────────────────────────────────────

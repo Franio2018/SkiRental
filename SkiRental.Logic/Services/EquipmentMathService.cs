@@ -94,7 +94,8 @@ public sealed class EquipmentMathService
             .OrderBy(e => Math.Abs(e.Size - poleLength));
 
         var matchingBoots = availableBoots
-            .Where(e => e.Size == p.ShoeSize)
+            .Where(e => Math.Abs(e.Size - p.ShoeSize) <= 1m)
+            .OrderBy(e => Math.Abs(e.Size - p.ShoeSize))
             .ToList();
 
         var allMatching = matchingSkis.Concat(matchingPoles).Concat(matchingBoots).ToList();

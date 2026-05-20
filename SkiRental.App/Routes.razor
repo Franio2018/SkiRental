@@ -1,12 +1,13 @@
 @using System.Reflection
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Web
+@using SkiRental.App.Shared
 
 <Router AppAssembly="@typeof(Routes).Assembly"
         AdditionalAssemblies="@ExtraAssemblies">
     <Found Context="routeData">
         @* Poprawiona ścieżka do MainLayout na .Shared *@
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(SkiRental.App.Shared.MainLayout)" />
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(SkiRental.App.Shared.MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>

@@ -46,7 +46,7 @@ public static class MauiProgram
         var localDbPath = Path.Combine(FileSystem.AppDataDirectory, "SkiRental.db");
         var connectionString = $"Data Source={localDbPath}";
 
-        builder.Services.AddSkiRentalServices(connectionString);
+        builder.Services.AddSkiRentalServices(connectionString, configuration: config);
 
         // ── JWT ───────────────────────────────────────────────────────────────
         builder.Services.Configure<JwtOptions>(opts =>
@@ -118,8 +118,17 @@ public static class MauiProgram
 
         // ── Scoped state ──────────────────────────────────────────────────────
         builder.Services.AddScoped<BookingStateService>();
+        builder.Services.AddScoped<ToastService>();
 
         var app = builder.Build();
+
+        // Restore session if "Remember Me" was used
+        try
+        {
+            var auth = app.Services.GetRequiredService<AuthenticationService>();
+            _ = auth.TryRestoreSessionAsync();
+        }
+        catch { /* non-fatal */ }
 
         // ── EF Migrations ─────────────────────────────────────────────────────
         var logPath = Path.Combine(FileSystem.AppDataDirectory, "startup.log");
@@ -128,6 +137,11 @@ public static class MauiProgram
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<SkiRentalDbContext>();
             db.Database.Migrate();
+            // Shop does not rent gloves/helmets; remove legacy seed rows if present.
+            db.Equipment
+                .Where(e => e.Category == Domain.Enums.EquipmentCategory.Gloves
+                         || e.Category == Domain.Enums.EquipmentCategory.Helmet)
+                .ExecuteDelete();
             File.WriteAllText(logPath, $"[{DateTime.Now}] Startup OK. DB={localDbPath}");
         }
         catch (Exception ex)

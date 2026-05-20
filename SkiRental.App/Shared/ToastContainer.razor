@@ -1,0 +1,20 @@
+@using SkiRental.App.Services
+
+@inject ToastService Toasts
+@implements IDisposable
+
+<div class="toast-container" aria-live="polite">
+    @foreach (var msg in Toasts.Messages)
+    {
+        <div class="toast toast-@msg.Level.ToString().ToLower()" @key="msg.CreatedAt">
+            <span>@msg.Text</span>
+            <button type="button" class="toast-close" @onclick="() => Toasts.Dismiss(msg)">×</button>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Toasts.Changed += OnChanged;
+    void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Toasts.Changed -= OnChanged;
+}

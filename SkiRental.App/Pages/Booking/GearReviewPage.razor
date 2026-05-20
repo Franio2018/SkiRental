@@ -13,6 +13,7 @@
 @inject IAuthenticationService AuthService
 @inject UserService UserService
 @inject BookingStateService BookingState
+@inject ToastService Toasts
 
 <PageTitle>Review Your Gear - SkiRental</PageTitle>
 
@@ -269,7 +270,7 @@
         catch (Exception ex)
         {
             _isLoadingSwaps = false;
-            // TODO: Show error message
+            Toasts.Error($"Błąd ładowania alternatyw: {ex.Message}");
         }
     }
 
