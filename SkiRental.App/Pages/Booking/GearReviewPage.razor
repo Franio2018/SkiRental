@@ -2,12 +2,17 @@
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
+@using SkiRental.Logic.Services
+@using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
 @inject IRecommendationOrchestrator RecommendationOrchestrator
 @inject IGearSwapService GearSwapService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject IAuthenticationService AuthService
+@inject UserService UserService
+@inject BookingStateService BookingState
 
 <PageTitle>Review Your Gear - SkiRental</PageTitle>
 
@@ -24,7 +29,18 @@
         <div class="review-header">
             <h2>Your Recommended Gear</h2>
             <p class="subtitle">Review your selection and make changes if needed</p>
-            
+
+            @if (!string.IsNullOrEmpty(_debugMessage))
+            {
+                <div class="warning-banner" style="background: #e0f2fe; border-color: #0ea5e9;">
+                    <span class="warning-icon">🔧</span>
+                    <div>
+                        <strong>Debug:</strong>
+                        <p>@_debugMessage</p>
+                    </div>
+                </div>
+            }
+
             @if (_recommendation.Status == RecommendationStatus.Partial)
             {
                 <div class="warning-banner">
@@ -122,62 +138,62 @@
             </button>
         </div>
     }
-}
 
-<!-- Swap Drawer Component -->
-@if (_isSwapDrawerOpen)
-{
-    <div class="swap-drawer-overlay" @onclick="CloseSwapDrawer">
-        <div class="swap-drawer" @onclick:stopPropagation>
-            <div class="drawer-header">
-                <h3>Swap @(_activeSwapCategory?.ToString() ?? "")</h3>
-                <button class="close-btn" @onclick="CloseSwapDrawer">×</button>
-            </div>
-
-            @if (_isLoadingSwaps)
-            {
-                <div class="drawer-loading">
-                    <div class="spinner"></div>
-                    <p>Loading alternatives...</p>
+    <!-- Swap Drawer Component -->
+    @if (_isSwapDrawerOpen)
+    {
+        <div class="swap-drawer-overlay open" @onclick="CloseSwapDrawer">
+            <div class="swap-drawer" @onclick:stopPropagation>
+                <div class="drawer-header">
+                    <h3>Swap @(_activeSwapCategory?.ToString() ?? "")</h3>
+                    <button class="close-btn" @onclick="CloseSwapDrawer">×</button>
                 </div>
-            }
-            else if (_swapOptions.Any())
-            {
-                <div class="swap-options">
-                    @foreach (var option in _swapOptions)
-                    {
-                        <div class="swap-option" @onclick="() => SelectSwapOption(option)">
-                            <div class="option-header">
-                                <h4>@option.Equipment.Brand @option.Equipment.Model</h4>
-                                @if (option.IsIdealSize)
-                                {
-                                    <span class="best-fit-badge">Best fit</span>
-                                }
-                            </div>
-                            <div class="option-details">
-                                <span class="size">@option.Equipment.Size@(GetUnit(_activeSwapCategory!.Value))</span>
-                                <span class="size-delta">@option.SizeDescription</span>
-                                <div class="fit-score">
-                                    @for (int i = 0; i < 5; i++)
+
+                @if (_isLoadingSwaps)
+                {
+                    <div class="drawer-loading">
+                        <div class="spinner"></div>
+                        <p>Loading alternatives...</p>
+                    </div>
+                }
+                else if (_swapOptions.Any())
+                {
+                    <div class="swap-options">
+                        @foreach (var option in _swapOptions)
+                        {
+                            <div class="swap-option" @onclick="() => SelectSwapOption(option)">
+                                <div class="option-header">
+                                    <h4>@option.Equipment.Brand @option.Equipment.Model</h4>
+                                    @if (option.IsIdealSize)
                                     {
-                                        <span class="star @(i < option.FitScore * 5 ? "filled" : "")">★</span>
+                                        <span class="best-fit-badge">Best fit</span>
                                     }
                                 </div>
+                                <div class="option-details">
+                                    <span class="size">@option.Equipment.Size@(GetUnit(_activeSwapCategory!.Value))</span>
+                                    <span class="size-delta">@option.SizeDescription</span>
+                                    <div class="fit-score">
+                                        @for (int i = 0; i < 5; i++)
+                                        {
+                                            <span class="star @(i < option.FitScore * 5 ? "filled" : "")">★</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="option-price">@option.Equipment.DailyRate PLN/day</div>
                             </div>
-                            <div class="option-price">@option.Equipment.DailyRate PLN/day</div>
-                        </div>
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="no-alternatives">
-                    <p>No alternatives available within safety tolerance.</p>
-                </div>
-            }
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="no-alternatives">
+                        <p>No alternatives available within safety tolerance.</p>
+                    </div>
+                }
+            </div>
         </div>
-    </div>
-}
+    }
+</div>
 
 @code {
     private RecommendationResult? _recommendation;
@@ -187,19 +203,34 @@
     private List<SwapOption> _swapOptions = new();
     private bool _isLoadingSwaps;
     private bool _isProcessing;
+    private int _customerProfileId;
+    private string? _debugMessage;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadRecommendationFromQuery();
+        // Guard – niezalogowany
+        if (!AuthService.IsAuthenticated || AuthService.CurrentUserId is null)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/gear-review");
+            return;
+        }
+
+        var profile = await UserService.GetProfileAsync(AuthService.CurrentUserId.Value);
+        if (profile is null)
+        {
+            Navigation.NavigateTo("/profile?returnUrl=/gear-review");
+            return;
+        }
+        _customerProfileId = profile.Id;
+
+        await LoadRecommendationFromState();
     }
 
-    private async Task LoadRecommendationFromQuery()
+    private async Task LoadRecommendationFromState()
     {
-        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-        var dataParam = query["data"];
+        _recommendation = BookingState.GetRecommendationResult();
 
-        if (string.IsNullOrEmpty(dataParam))
+        if (_recommendation == null)
         {
             Navigation.NavigateTo("/booking");
             return;
@@ -207,7 +238,6 @@
 
         try
         {
-            _recommendation = System.Text.Json.JsonSerializer.Deserialize<RecommendationResult>(dataParam);
             _currentSelection = new Dictionary<EquipmentCategory, Equipment>(_recommendation!.Selection);
         }
         catch
@@ -262,18 +292,20 @@
 
     private async Task ProceedToPayment()
     {
+        _debugMessage = "ProceedToPayment button was clicked!";
+        StateHasChanged();
+
+        await Task.Delay(1000); // Show message for 1 second
+
         if (_recommendation == null || _recommendation.Parameters == null) return;
 
         _isProcessing = true;
 
         try
         {
-            // Re-validate availability before proceeding
-            // TODO: Add availability validation logic
-
             var gearSelection = new GearSelection
             {
-                CustomerProfileId = 1, // TODO: Get from auth service
+                CustomerProfileId = _customerProfileId,
                 EquipmentIds = _currentSelection.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Id),
                 StartTime = DateTime.Now.AddHours(1),
                 EndTime = DateTime.Now.AddDays(1),
@@ -281,8 +313,8 @@
                 Recommendation = _recommendation
             };
 
-            var dataParam = Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(gearSelection));
-            Navigation.NavigateTo($"/payment?data={dataParam}");
+            BookingState.SetGearSelection(gearSelection);
+            Navigation.NavigateTo("/payment");
         }
         finally
         {
@@ -292,6 +324,16 @@
 
     private void GoBack()
     {
+        _debugMessage = "GoBack button was clicked!";
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            _debugMessage = null;
+            StateHasChanged();
+        });
+
         Navigation.NavigateTo("/booking");
     }
 
@@ -311,4 +353,3 @@
         _ => ""
     };
 }
-</div>

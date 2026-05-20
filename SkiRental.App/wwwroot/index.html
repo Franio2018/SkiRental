@@ -91,8 +91,40 @@
             }
         };
 
+        // ── File download helper ─────────────────────────────────────────────────
+        window.SkiRentalDownload = {
+            downloadText: function(base64, fileName, mimeType) {
+                const byteCharacters = atob(base64);
+                const byteArray = new Uint8Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++)
+                    byteArray[i] = byteCharacters.charCodeAt(i);
+                const blob = new Blob([byteArray], { type: mimeType });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href     = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        };
+
         // Uruchom Blazor po załadowaniu bridge
-        Blazor.start();
+        Blazor.start().catch(function (error) {
+            console.error("Blazor start failed:", error);
+            // Show detailed error in the error UI
+            const errorUi = document.getElementById('blazor-error-ui');
+            if (errorUi) {
+                errorUi.style.display = 'block';
+                const errorDetails = document.createElement('div');
+                errorDetails.style.marginTop = '10px';
+                errorDetails.style.fontSize = '12px';
+                errorDetails.style.color = 'white';
+                errorDetails.textContent = 'Error: ' + (error.message || error);
+                errorUi.appendChild(errorDetails);
+            }
+        });
     </script>
 </body>
 </html>

@@ -2,6 +2,7 @@
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
+@using SkiRental.Logic.Services
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Routing
 
@@ -9,6 +10,8 @@
 @inject IUserRepository UserRepository
 @inject IRentalRepository RentalRepository
 @inject NavigationManager Navigation
+@inject UserService UserService
+@inject INotificationService NotificationService
 
 <PageTitle>Manage Customers - SkiRental</PageTitle>
 
@@ -128,6 +131,26 @@
         </div>
     }
 </div>
+
+<!-- Confirmation Modal -->
+@if (_showConfirmationModal)
+{
+    <div class="modal-overlay" @onclick="CloseConfirmationModal">
+        <div class="modal-content confirmation" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>@_confirmationTitle</h2>
+                <button class="close-btn" @onclick="CloseConfirmationModal">×</button>
+            </div>
+            <div class="modal-body">
+                <p>@_confirmationMessage</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-secondary" @onclick="CloseConfirmationModal">Cancel</button>
+                <button class="btn-primary" @onclick="ConfirmAction">Confirm</button>
+            </div>
+        </div>
+    </div>
+}
 
 <!-- Customer Details Modal -->
 @if (_selectedCustomer != null)
@@ -347,6 +370,13 @@
     private bool SortAscending = true;
     private string _activeTab = "profile";
 
+    // Confirmation modal
+    private bool _showConfirmationModal;
+    private string _confirmationTitle = string.Empty;
+    private string _confirmationMessage = string.Empty;
+    private CustomerSummary? _pendingCustomer;
+    private bool _pendingActivation;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadCustomersAsync();
@@ -355,17 +385,22 @@
     private async Task LoadCustomersAsync()
     {
         _isLoading = true;
-        
+
         try
         {
             // Get all users and their profiles
             var users = await UserRepository.GetAllAsync();
+            var customerIds = users.Select(u => u.Id).ToList();
+
+            // Single grouped query instead of N+1 individual queries
+            var rentalSummaries = await RentalRepository.GetRentalSummariesByCustomerIdsAsync(customerIds);
+
             var customers = new List<CustomerSummary>();
 
             foreach (var user in users)
             {
                 var profile = await UserRepository.GetProfileByUserIdAsync(user.Id);
-                var rentals = await RentalRepository.GetByCustomerIdAsync(user.Id);
+                var summary = rentalSummaries.GetValueOrDefault(user.Id, new CustomerRentalSummary());
 
                 customers.Add(new CustomerSummary
                 {
@@ -376,9 +411,9 @@
                     PhoneNumber = profile?.PhoneNumber ?? string.Empty,
                     IsActive = !user.IsLocked,
                     CreatedAt = user.CreatedAt,
-                    TotalRentals = rentals.Count,
-                    TotalSpent = rentals.Where(r => r.Status == RentalStatus.Completed).Sum(r => r.TotalAmount),
-                    LastRentalDate = rentals.OrderByDescending(r => r.StartTime).FirstOrDefault()?.StartTime ?? DateTime.MinValue,
+                    TotalRentals = summary.TotalRentals,
+                    TotalSpent = summary.TotalSpent,
+                    LastRentalDate = summary.LastRentalDate ?? DateTime.MinValue,
                     Profile = profile
                 });
             }
@@ -546,14 +581,81 @@
 
     private async Task DeactivateCustomer(CustomerSummary customer)
     {
-        // TODO: Implement deactivation logic
-        await LoadCustomersAsync();
+        _pendingCustomer = customer;
+        _pendingActivation = false;
+        _confirmationTitle = "Deactivate Account";
+        _confirmationMessage = $"Are you sure you want to deactivate {customer.FirstName} {customer.LastName}'s account? They will not be able to log in or make new bookings.";
+        _showConfirmationModal = true;
     }
 
     private async Task ActivateCustomer(CustomerSummary customer)
     {
-        // TODO: Implement activation logic
-        await LoadCustomersAsync();
+        _pendingCustomer = customer;
+        _pendingActivation = true;
+        _confirmationTitle = "Activate Account";
+        _confirmationMessage = $"Are you sure you want to activate {customer.FirstName} {customer.LastName}'s account? They will be able to log in and make bookings again.";
+        _showConfirmationModal = true;
+    }
+
+    private void CloseConfirmationModal()
+    {
+        _showConfirmationModal = false;
+        _pendingCustomer = null;
+    }
+
+    private async Task ConfirmAction()
+    {
+        if (_pendingCustomer == null) return;
+
+        try
+        {
+            var result = await UserService.SetLockAsync(_pendingCustomer.Id, !_pendingActivation);
+
+            if (result.IsSuccess)
+            {
+                // Send notification to customer
+                var profile = await UserRepository.GetProfileByUserIdAsync(_pendingCustomer.Id);
+                if (profile != null)
+                {
+                    var notification = new NotificationPayload
+                    {
+                        Subject = _pendingActivation ? "Your SkiRental account has been activated" : "Your SkiRental account has been deactivated",
+                        Body = _pendingActivation
+                            ? "Good news! Your SkiRental account has been reactivated. You can now log in and book equipment again."
+                            : "Your SkiRental account has been temporarily deactivated. Please contact support if you have any questions.",
+                        TemplateData = new Dictionary<string, string>
+                        {
+                            { "CustomerName", $"{profile.FirstName} {profile.LastName}" }
+                        }
+                    };
+
+                    if (!string.IsNullOrEmpty(profile.Email) && profile.EmailNotificationsEnabled)
+                    {
+                        await NotificationService.SendEmailAsync(profile.Email, notification);
+                    }
+
+                    if (!string.IsNullOrEmpty(profile.PhoneNumber) && profile.SmsNotificationsEnabled)
+                    {
+                        await NotificationService.SendSmsAsync(profile.PhoneNumber, notification);
+                    }
+                }
+
+                await LoadCustomersAsync();
+            }
+            else
+            {
+                // TODO: Show error message
+                Console.WriteLine($"Error: {result.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error changing account status: {ex.Message}");
+        }
+        finally
+        {
+            CloseConfirmationModal();
+        }
     }
 
     private bool HasChanges => _editingCustomer != null && _selectedCustomer != null &&

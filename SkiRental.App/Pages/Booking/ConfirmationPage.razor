@@ -1,10 +1,12 @@
 @page "/confirmation"
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
+@using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject BookingStateService BookingState
 
 <PageTitle>Booking Confirmed - SkiRental</PageTitle>
 
@@ -189,33 +191,15 @@
 </div>
 
 @code {
-    private dynamic? _bookingData; // Using dynamic for simplicity - in real app would use proper DTO
+    private ConfirmationData? _bookingData;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        await LoadBookingDataFromQuery();
-    }
+        _bookingData = BookingState.GetConfirmation();
+        BookingState.ClearConfirmation(); // wyczyść po odczytaniu
 
-    private async Task LoadBookingDataFromQuery()
-    {
-        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-        var dataParam = query["data"];
-
-        if (string.IsNullOrEmpty(dataParam))
-        {
+        if (_bookingData == null)
             Navigation.NavigateTo("/");
-            return;
-        }
-
-        try
-        {
-            _bookingData = System.Text.Json.JsonSerializer.Deserialize<object>(dataParam);
-        }
-        catch
-        {
-            Navigation.NavigateTo("/");
-        }
     }
 
     private async Task PrintReceipt()
@@ -225,8 +209,55 @@
 
     private async Task DownloadReceipt()
     {
-        // TODO: Implement PDF download functionality
-        await JSRuntime.InvokeVoidAsync("alert", new object[] { "PDF download coming soon!" });
+        if (_bookingData == null) return;
+
+        var receipt = BuildReceiptText(_bookingData);
+        var bytes   = System.Text.Encoding.UTF8.GetBytes(receipt);
+        var base64  = Convert.ToBase64String(bytes);
+        var fileName = $"SkiRental_Paragon_{_bookingData.RentalId}_{DateTime.Now:yyyyMMdd}.txt";
+
+        // Wywołaj JS do pobrania pliku przez link data-URI
+        await JSRuntime.InvokeVoidAsync(
+            "SkiRentalDownload.downloadText", base64, fileName, "text/plain;charset=utf-8");
+    }
+
+    private static string BuildReceiptText(ConfirmationData data)
+    {
+        var sb = new System.Text.StringBuilder();
+        var line = new string('─', 40);
+
+        sb.AppendLine("═══════════════════════════════════════");
+        sb.AppendLine("            🎿 SkiRental                ");
+        sb.AppendLine("         Paragon / Receipt              ");
+        sb.AppendLine("═══════════════════════════════════════");
+        sb.AppendLine();
+        sb.AppendLine($"  Numer rezerwacji : #{data.RentalId}");
+        sb.AppendLine($"  Data wystawienia : {DateTime.Now:dd.MM.yyyy HH:mm}");
+        sb.AppendLine($"  Metoda płatności : {data.PaymentMethod}");
+        sb.AppendLine();
+        sb.AppendLine(line);
+        sb.AppendLine();
+        sb.AppendLine("  POZYCJE:");
+        sb.AppendLine($"  Wypożyczenie sprzętu narciarskiego  {data.TotalAmount:F2} PLN");
+        sb.AppendLine();
+        sb.AppendLine(line);
+        sb.AppendLine($"  RAZEM:                              {data.TotalAmount:F2} PLN");
+        sb.AppendLine();
+        sb.AppendLine("  Status: " + (data.PaymentMethod == PaymentMethod.Spot
+            ? "Do zapłaty przy odbiorze"
+            : "Opłacono"));
+        sb.AppendLine();
+        sb.AppendLine(line);
+        sb.AppendLine();
+        sb.AppendLine("  Kod QR:  " + data.QrCode);
+        sb.AppendLine();
+        sb.AppendLine("  SkiRental, Zakopane");
+        sb.AppendLine("  Tel: +48 18 000 0000");
+        sb.AppendLine("  kontakt@skirent.pl");
+        sb.AppendLine();
+        sb.AppendLine("  Dziękujemy za skorzystanie z SkiRental!");
+
+        return sb.ToString();
     }
 
     private void ViewMyRentals()

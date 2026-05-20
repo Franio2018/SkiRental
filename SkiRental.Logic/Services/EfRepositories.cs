@@ -141,9 +141,9 @@ public sealed class EfEquipmentRepository : IEquipmentRepository
             .Where(e => e.Status == EquipmentStatus.Available
                      && e.Category == category
                      && (e.CompatibleStyle == style || e.CompatibleStyle == SkiStyle.Combi))
-            .OrderBy(e => e.Size)
             .AsNoTracking()
-            .ToListAsync(ct);
+            .ToListAsync(ct)
+            .ContinueWith(t => t.Result.OrderBy(e => e.Size).ToList(), ct);
     }
 
     public async Task<Equipment?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -182,6 +182,9 @@ public sealed class EfEquipmentRepository : IEquipmentRepository
         _db.Equipment.Update(equipment);
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+        => await _db.Equipment.AnyAsync(e => e.Id == id, ct);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -265,5 +268,38 @@ public sealed class EfRentalRepository : IRentalRepository
             .Select(re => re.Rental)
             .AsNoTracking()
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyDictionary<int, CustomerRentalSummary>>
+        GetRentalSummariesByCustomerIdsAsync(
+        IEnumerable<int> customerIds,
+        CancellationToken ct = default)
+    {
+        var ids = customerIds.ToList();
+
+        return await _db.Rentals
+            .Where(r => ids.Contains(r.CustomerProfileId))
+            .GroupBy(r => r.CustomerProfileId)
+            .Select(g => new
+            {
+                CustomerId    = g.Key,
+                TotalRentals  = g.Count(),
+                ActiveRentals = g.Count(r => r.Status == RentalStatus.Active
+                                          || r.Status == RentalStatus.Pending),
+                TotalSpent    = g.Where(r => r.PaymentStatus == PaymentStatus.Paid)
+                                 .Sum(r => r.TotalAmount),
+                LastRentalDate = (DateTime?)g.Max(r => r.StartTime)
+            })
+            .AsNoTracking()
+            .ToDictionaryAsync(
+                x => x.CustomerId,
+                x => new CustomerRentalSummary
+                {
+                    TotalRentals   = x.TotalRentals,
+                    ActiveRentals  = x.ActiveRentals,
+                    TotalSpent     = x.TotalSpent,
+                    LastRentalDate = x.LastRentalDate
+                },
+                ct);
     }
 }

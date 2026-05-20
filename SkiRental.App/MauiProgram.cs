@@ -34,9 +34,7 @@ public static class MauiProgram
 #endif
 
         // ── Configuration ─────────────────────────────────────────────────────
-        // appsettings.json must be EmbeddedResource in the .csproj (see fix).
-        // Without this the stream is null, config is empty, and JwtTokenService
-        // throws on startup because SecretKey is an empty string.
+        // appsettings.json must be EmbeddedResource in the .csproj.
         var assembly = Assembly.GetExecutingAssembly();
         using var stream = assembly.GetManifestResourceStream("SkiRental.App.appsettings.json");
         if (stream is not null)
@@ -48,10 +46,9 @@ public static class MauiProgram
         var localDbPath = Path.Combine(FileSystem.AppDataDirectory, "SkiRental.db");
         var connectionString = $"Data Source={localDbPath}";
 
-        // Single call — registers DbContext + all repositories + domain services.
         builder.Services.AddSkiRentalServices(connectionString);
 
-        // ── JWT — with safe fallback so an unconfigured key never crashes app ─
+        // ── JWT ───────────────────────────────────────────────────────────────
         builder.Services.Configure<JwtOptions>(opts =>
         {
             var s = config.GetSection(JwtOptions.SectionName);
@@ -68,62 +65,92 @@ public static class MauiProgram
         builder.Services.Configure<PayUOptions>(config.GetSection(PayUOptions.SectionName));
 
         // ── HTTP clients ──────────────────────────────────────────────────────
-        builder.Services.AddHttpClient<PayUPaymentProvider>(client =>
-            client.Timeout = TimeSpan.FromSeconds(30));
+        // IMPORTANT: AddHttpClient<T> registers T as a transient typed-client service
+        // that receives a properly configured HttpClient from IHttpClientFactory.
+        // Never add a second AddScoped/AddSingleton for the same type — the second
+        // registration bypasses the factory pipeline, leaving HttpClient un-injected
+        // and causing an InvalidOperationException at first resolution.
 
-        builder.Services.AddHttpClient<WeatherService>(client =>
+        // PayU typed client (transient via IHttpClientFactory).
+        // IPaymentProvider is exposed as Scoped by building the instance manually
+        // so each Blazor scope gets a fresh PayUPaymentProvider with a pooled HttpClient.
+        builder.Services.AddHttpClient(nameof(PayUPaymentProvider), client =>
+            client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddScoped<IPaymentProvider>(sp =>
+        {
+            var factory = sp.GetRequiredService<IHttpClientFactory>();
+            var http    = factory.CreateClient(nameof(PayUPaymentProvider));
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PayUOptions>>();
+            var logger  = sp.GetRequiredService<ILogger<PayUPaymentProvider>>();
+            return new PayUPaymentProvider(http, options, logger);
+        });
+
+        // Weather: singleton that creates its HttpClient once via IHttpClientFactory,
+        // which avoids the socket-exhaustion problem and works correctly with a singleton.
+        builder.Services.AddHttpClient("WeatherClient", client =>
         {
             client.BaseAddress = new Uri("https://api.openweathermap.org/");
             client.Timeout = TimeSpan.FromSeconds(10);
         });
-
-        // ── Payment provider ──────────────────────────────────────────────────
-        builder.Services.AddScoped<IPaymentProvider, PayUPaymentProvider>();
+        builder.Services.AddSingleton<WeatherService>(sp =>
+        {
+            var factory = sp.GetRequiredService<IHttpClientFactory>();
+            var http    = factory.CreateClient("WeatherClient");
+            var cfg     = sp.GetRequiredService<IConfiguration>();
+            var logger  = sp.GetRequiredService<ILogger<WeatherService>>();
+            return new WeatherService(http, cfg, logger);
+        });
 
         // ── App-layer singletons ──────────────────────────────────────────────
         builder.Services.AddSingleton<JwtTokenService>();
 
-        // Register BOTH concrete and interface — same instance, different lookup keys.
-        // Pages inject: @inject AuthenticationService Auth
-        // QrScannerPanel injects: @inject IAuthenticationService Auth
+        // Expose AuthenticationService under both the concrete type and the interface
+        // so pages can use @inject AuthenticationService Auth  (concrete, richer API)
+        // and components can use @inject IAuthenticationService Auth  (interface, testable).
         builder.Services.AddSingleton<AuthenticationService>();
         builder.Services.AddSingleton<IAuthenticationService>(
             sp => sp.GetRequiredService<AuthenticationService>());
 
         builder.Services.AddSingleton<QrNfcBridgeService>();
-        builder.Services.AddSingleton<WeatherService>();
         builder.Services.AddSingleton<ProfilePictureService>();
         builder.Services.AddSingleton<MainPage>();
         builder.Services.AddSingleton<App>();
 
+        // ── Scoped state ──────────────────────────────────────────────────────
+        builder.Services.AddScoped<BookingStateService>();
+
         var app = builder.Build();
 
-        // ── EF Migrations — log crash to file (no window = no UI for errors) ──
+        // ── EF Migrations ─────────────────────────────────────────────────────
         var logPath = Path.Combine(FileSystem.AppDataDirectory, "startup.log");
         try
         {
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<SkiRentalDbContext>();
-            
-            // Check if database exists and has tables
-            var canConnect = db.Database.CanConnect();
-            Console.WriteLine($"Can connect to DB: {canConnect}");
-            
-            if (canConnect)
-            {
-                var tables = db.Model.GetEntityTypes().Select(t => t.GetTableName()).ToList();
-                Console.WriteLine($"Existing tables: {string.Join(", ", tables)}");
-            }
-            
             db.Database.Migrate();
-            File.WriteAllText(logPath, $"[{DateTime.Now}] OK. DB={localDbPath}");
+            File.WriteAllText(logPath, $"[{DateTime.Now}] Startup OK. DB={localDbPath}");
         }
         catch (Exception ex)
         {
-            File.WriteAllText(logPath, $"[{DateTime.Now}] CRASH:\n{ex}");
+            // Log and continue — migration failure on an existing DB is recoverable.
+            // The app can still run against the current schema.
+            File.WriteAllText(logPath, $"[{DateTime.Now}] Migration error:\n{ex}");
             app.Services.GetService<ILoggerFactory>()
                ?.CreateLogger("Startup")
                .LogError(ex, "Migration failed. DB={Path}", localDbPath);
+        }
+
+        // ── Test service resolution ────────────────────────────────────────────
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var auth = scope.ServiceProvider.GetRequiredService<AuthenticationService>();
+            var weather = scope.ServiceProvider.GetRequiredService<WeatherService>();
+            File.AppendAllText(logPath, $"\n[{DateTime.Now}] Service resolution OK");
+        }
+        catch (Exception ex)
+        {
+            File.AppendAllText(logPath, $"\n[{DateTime.Now}] Service resolution error:\n{ex}");
         }
 
         return app;

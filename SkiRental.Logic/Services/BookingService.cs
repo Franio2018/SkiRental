@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SkiRental.Domain.Enums;
 using SkiRental.Domain.Models;
@@ -18,17 +19,20 @@ public sealed class BookingService
     private readonly IRentalRepository    _rentalRepo;
     private readonly IEquipmentRepository _equipmentRepo;
     private readonly IPaymentProvider     _paymentProvider;
+    private readonly SkiRentalDbContext  _db;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
         IRentalRepository rentalRepo,
         IEquipmentRepository equipmentRepo,
         IPaymentProvider paymentProvider,
+        SkiRentalDbContext db,
         ILogger<BookingService> logger)
     {
         _rentalRepo      = rentalRepo;
         _equipmentRepo   = equipmentRepo;
         _paymentProvider = paymentProvider;
+        _db              = db;
         _logger          = logger;
     }
 
@@ -41,6 +45,8 @@ public sealed class BookingService
     /// and optionally takes BLIK payment upfront.
     /// Equipment only moves to Rented when <see cref="ActivateRentalAsync"/> is called
     /// (i.e. when the worker hands over the equipment to the customer).
+    /// 
+    /// Uses atomic transaction with ExecuteUpdateAsync to prevent race conditions.
     /// </summary>
     public async Task<BookingResult> CreateBookingAsync(
         CreateBookingRequest request,
@@ -48,68 +54,101 @@ public sealed class BookingService
     {
         _logger.LogInformation("Creating booking for customer {CustomerId}", request.CustomerProfileId);
 
-        // 1. Validate availability
-        foreach (var equipmentId in request.EquipmentIds)
+        // Używamy jawnej transakcji żeby sprawdzenie + zmiana statusu były atomowe
+        await using var tx = await _db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, ct);
+
+        try
         {
-            var equipment = await _equipmentRepo.GetByIdAsync(equipmentId, ct)
-                ?? throw new InvalidOperationException($"Sprzęt {equipmentId} nie istnieje.");
+            // ── 1. ATOMOWE zajęcie sprzętu ──────────────────────────────────────
+            // ExecuteUpdateAsync z WHERE Status = Available zwróci liczbę
+            // faktycznie zaktualizowanych wierszy. Jeśli 0 – sprzęt właśnie
+            // zajął ktoś inny (race condition przechwycony).
 
-            if (equipment.Status != EquipmentStatus.Available)
-                return BookingResult.Failure($"Sprzęt {equipment.SerialNumber} jest niedostępny ({equipment.Status}).");
-        }
-
-        // 2. Calculate total
-        var totalAmount = await CalculateTotalAmountAsync(request, ct);
-
-        // 3. Generate unique QR code
-        var qrCode = GenerateQrCode(request);
-
-        // 4. Build Rental entity (status = Pending)
-        var rental = new Rental
-        {
-            CustomerProfileId = request.CustomerProfileId,
-            StartTime         = request.StartTime,
-            EndTime           = request.EndTime,
-            TotalAmount       = totalAmount,
-            QrCode            = qrCode,
-            Status            = RentalStatus.Pending,
-            PaymentStatus     = PaymentStatus.Unpaid,
-            Notes             = request.Notes,
-            RentalEquipments  = request.EquipmentIds
-                .Select(id => new RentalEquipment { EquipmentId = id, ConditionAtPickup = 5 })
-                .ToList()
-        };
-
-        rental = await _rentalRepo.CreateAsync(rental, ct);
-
-        // 5. BLIK payment (upfront) – if code provided
-        if (request.BlikCode is not null)
-        {
-            var payResult = await _paymentProvider.InitiateBlikPayment(
-                totalAmount, request.BlikCode, rental.Id.ToString(), BuildOrderDescription(rental));
-
-            if (payResult.IsSuccess)
+            foreach (var equipmentId in request.EquipmentIds)
             {
-                rental.PaymentStatus   = PaymentStatus.Paid;
-                rental.PayUOrderId     = payResult.ExternalTransactionId;
-                rental.IsPreauthorized = false; // direct payment, not pre-auth
-            }
-            else
-            {
-                _logger.LogWarning("BLIK payment failed: {Error}", payResult.ErrorMessage);
+                // Najpierw sprawdź czy sprzęt w ogóle istnieje
+                var exists = await _equipmentRepo.ExistsAsync(equipmentId, ct);
+                if (!exists)
+                    return BookingResult.Failure($"Sprzęt #{equipmentId} nie istnieje.");
 
-                // Payment failed — keep rental as Pending/Unpaid; do NOT lock equipment.
-                await _rentalRepo.UpdateAsync(rental, ct);
-                return BookingResult.Failure(
-                    $"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
-                    rental.Id, qrCode);
+                // Atomowo zmień Available → Reserved TYLKO jeśli nadal Available
+                var affected = await _db.Equipment
+                    .Where(e => e.Id == equipmentId
+                             && e.Status == EquipmentStatus.Available)
+                    .ExecuteUpdateAsync(
+                        s => s.SetProperty(e => e.Status, EquipmentStatus.Reserved),
+                        ct);
+
+                if (affected == 0)
+                {
+                    // Wycofaj już zmienione wiersze w tej transakcji
+                    await tx.RollbackAsync(ct);
+
+                    var eq = await _equipmentRepo.GetByIdAsync(equipmentId, ct);
+                    return BookingResult.Failure(
+                        $"Sprzęt {eq?.SerialNumber ?? $"#{equipmentId}"} " +
+                        $"jest niedostępny ({eq?.Status}). Inny klient zarezerwował go właśnie teraz.");
+                }
             }
 
-            await _rentalRepo.UpdateAsync(rental, ct);
-        }
+            // ── 2. Oblicz kwotę ─────────────────────────────────────────────────
+            var totalAmount = await CalculateTotalAmountAsync(request, ct);
+            var qrCode = GenerateQrCode(request);
 
-        _logger.LogInformation("Booking {RentalId} created. QR={QrCode}", rental.Id, qrCode);
-        return BookingResult.Success(rental.Id, qrCode, totalAmount);
+            // ── 3. Utwórz encję Rental ───────────────────────────────────────────
+            var rental = new Rental
+            {
+                CustomerProfileId = request.CustomerProfileId,
+                StartTime         = request.StartTime,
+                EndTime           = request.EndTime,
+                TotalAmount       = totalAmount,
+                QrCode            = qrCode,
+                Status            = RentalStatus.Pending,
+                PaymentStatus     = PaymentStatus.Unpaid,
+                Notes             = request.Notes,
+                RentalEquipments  = request.EquipmentIds
+                    .Select(id => new RentalEquipment { EquipmentId = id, ConditionAtPickup = 5 })
+                    .ToList()
+            };
+
+            rental = await _rentalRepo.CreateAsync(rental, ct);
+
+            // ── 4. Opcjonalna płatność BLIK ──────────────────────────────────────
+            if (request.BlikCode is not null)
+            {
+                var payResult = await _paymentProvider.InitiateBlikPayment(
+                    totalAmount, request.BlikCode,
+                    rental.Id.ToString(), BuildOrderDescription(rental));
+
+                if (payResult.IsSuccess)
+                {
+                    rental.PaymentStatus   = PaymentStatus.Paid;
+                    rental.PayUOrderId     = payResult.ExternalTransactionId;
+                    rental.IsPreauthorized = false;
+                    await _rentalRepo.UpdateAsync(rental, ct);
+                }
+                else
+                {
+                    _logger.LogWarning("BLIK payment failed: {Error}", payResult.ErrorMessage);
+                    // Płatność nieudana – zwróć sprzęt do Available i wycofaj transakcję
+                    await tx.RollbackAsync(ct);
+                    return BookingResult.Failure(
+                        $"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
+                        rental.Id, qrCode);
+                }
+            }
+
+            await tx.CommitAsync(ct);
+            _logger.LogInformation("Booking {RentalId} created. QR={QrCode}", rental.Id, qrCode);
+            return BookingResult.Success(rental.Id, qrCode, totalAmount);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            // Sprzęt automatycznie wraca do stanu sprzed transakcji (rollback)
+            throw;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

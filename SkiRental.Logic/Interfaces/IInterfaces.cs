@@ -108,6 +108,9 @@ public interface IEquipmentRepository
 
     /// <summary>Update an existing equipment item (brand, model, rates, maintenance).</summary>
     Task UpdateAsync(Equipment equipment, CancellationToken ct = default);
+
+    /// <summary>Check if equipment exists by ID.</summary>
+    Task<bool> ExistsAsync(int id, CancellationToken ct = default);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -126,6 +129,22 @@ public interface IRentalRepository
 
     Task<IReadOnlyList<Rental>> GetRentalsForUtilizationAsync(
         int equipmentId, DateTime seasonStart, DateTime seasonEnd, CancellationToken ct = default);
+
+    /// <summary>
+    /// Zwraca podsumowanie wypożyczeń pogrupowane po ID klienta.
+    /// Używane w panelu zarządczym zamiast N osobnych zapytań.
+    /// </summary>
+    Task<IReadOnlyDictionary<int, CustomerRentalSummary>> GetRentalSummariesByCustomerIdsAsync(
+        IEnumerable<int> customerIds,
+        CancellationToken ct = default);
+}
+
+public record CustomerRentalSummary
+{
+    public int TotalRentals   { get; init; }
+    public int ActiveRentals  { get; init; }
+    public decimal TotalSpent { get; init; }
+    public DateTime? LastRentalDate { get; init; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

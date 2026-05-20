@@ -8,6 +8,7 @@
 @inject IEquipmentRepository EquipmentRepository
 @inject INotificationService NotificationService
 @inject NavigationManager Navigation
+@inject IUserRepository UserRepository
 
 <PageTitle>Manage Orders - SkiRental</PageTitle>
 
@@ -31,10 +32,20 @@
             </div>
 
             <div class="filter-group">
+                <label for="date-from">From:</label>
+                <input type="date" id="date-from" @bind="_dateFrom" class="date-input" />
+            </div>
+
+            <div class="filter-group">
+                <label for="date-to">To:</label>
+                <input type="date" id="date-to" @bind="_dateTo" class="date-input" />
+            </div>
+
+            <div class="filter-group">
                 <label for="search-query">Search:</label>
-                <input type="text" 
+                <input type="text"
                        id="search-query"
-                       @bind="SearchQuery" 
+                       @bind="SearchQuery"
                        placeholder="Customer name, QR code, or rental ID..."
                        class="search-input" />
             </div>
@@ -275,6 +286,8 @@
     private string SearchQuery = string.Empty;
     private string SortColumn = "Id";
     private bool SortAscending = true;
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
 
     // Override drawer state
     private bool _isOverrideDrawerOpen;
@@ -290,15 +303,15 @@
     private async Task LoadRentalsAsync()
     {
         _isLoading = true;
-        
+
         try
         {
-            // Get all rentals - in real implementation, this would be filtered by date range
-            _allRentals = (await RentalRepository.GetAllRentalsAsync(
-                DateTime.Now.AddMonths(-1), 
-                DateTime.Now.AddMonths(1)))
+            var fromDate = _dateFrom ?? DateTime.Now.AddMonths(-1);
+            var toDate = _dateTo ?? DateTime.Now.AddMonths(1);
+
+            _allRentals = (await RentalRepository.GetAllRentalsAsync(fromDate, toDate))
                 .ToList();
-            
+
             ApplyFiltersAndSort();
         }
         catch (Exception ex)
@@ -439,18 +452,87 @@
 
         try
         {
-            // TODO: Implement actual override logic
-            // This would update the rental equipment assignments and send notifications
-            
-            var notification = new NotificationPayload
+            // Update rental equipment assignments
+            foreach (var (category, newEquipmentId) in _overrideSelections)
             {
-                Subject = "Equipment Assignment Updated",
-                Body = $"Your rental equipment has been updated by staff. Reason: {_overrideReason}",
-                SmsShortMessage = "SkiRental: Your equipment assignment has been updated."
-            };
+                if (newEquipmentId > 0)
+                {
+                    var rentalEquipment = _selectedRental.RentalEquipments
+                        .FirstOrDefault(re => re.Equipment.Category == category);
 
-            // Send notification (mock - would get customer contact info)
-            await NotificationService.SendEmailAsync("customer@example.com", notification);
+                    if (rentalEquipment != null)
+                    {
+                        // Mark old equipment as available
+                        var oldEquipment = await EquipmentRepository.GetByIdAsync(rentalEquipment.EquipmentId);
+                        if (oldEquipment != null)
+                        {
+                            oldEquipment.Status = EquipmentStatus.Available;
+                            await EquipmentRepository.UpdateAsync(oldEquipment);
+                        }
+
+                        // Mark new equipment as reserved
+                        var newEquipment = await EquipmentRepository.GetByIdAsync(newEquipmentId);
+                        if (newEquipment != null)
+                        {
+                            newEquipment.Status = EquipmentStatus.Reserved;
+                            await EquipmentRepository.UpdateAsync(newEquipment);
+
+                            // Update rental equipment
+                            rentalEquipment.EquipmentId = newEquipmentId;
+                            rentalEquipment.Equipment = newEquipment;
+                        }
+                    }
+                }
+            }
+
+            // Update rental in repository
+            await RentalRepository.UpdateAsync(_selectedRental);
+
+            // Send notification to customer
+            var user = await UserRepository.GetByIdAsync(_selectedRental.CustomerProfileId);
+            var profile = await UserRepository.GetProfileByUserIdAsync(_selectedRental.CustomerProfileId);
+
+            if (profile != null)
+            {
+                var equipmentChanges = string.Join(", ",
+                    _overrideSelections
+                        .Where(kvp => kvp.Value > 0)
+                        .Select(kvp =>
+                        {
+                            var oldEq = _selectedRental.RentalEquipments
+                                .FirstOrDefault(re => re.Equipment.Category == kvp.Key)?.Equipment;
+                            var newEq = _availableEquipmentByCategory[kvp.Key]
+                                .FirstOrDefault(e => e.Id == kvp.Value);
+                            return $"{kvp.Key}: {oldEq?.Brand} {oldEq?.Model} → {newEq?.Brand} {newEq?.Model}";
+                        }));
+
+                var notification = new NotificationPayload
+                {
+                    Subject = "Equipment Assignment Updated",
+                    Body = $"Your rental equipment has been updated by staff.\n\n" +
+                           $"Rental ID: {_selectedRental.Id}\n" +
+                           $"Changes: {equipmentChanges}\n" +
+                           $"Reason: {_overrideReason}\n\n" +
+                           $"Please contact us if you have any questions.",
+                    SmsShortMessage = $"SkiRental: Your equipment assignment for rental #{_selectedRental.Id} has been updated. Reason: {_overrideReason}",
+                    TemplateData = new Dictionary<string, string>
+                    {
+                        { "RentalId", _selectedRental.Id.ToString() },
+                        { "Changes", equipmentChanges },
+                        { "Reason", _overrideReason }
+                    }
+                };
+
+                if (!string.IsNullOrEmpty(profile.Email) && profile.EmailNotificationsEnabled)
+                {
+                    await NotificationService.SendEmailAsync(profile.Email, notification);
+                }
+
+                if (!string.IsNullOrEmpty(profile.PhoneNumber) && profile.SmsNotificationsEnabled)
+                {
+                    await NotificationService.SendSmsAsync(profile.PhoneNumber, notification);
+                }
+            }
 
             CloseOverrideDrawer();
             await LoadRentalsAsync(); // Refresh data

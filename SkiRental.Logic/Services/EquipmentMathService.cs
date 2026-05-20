@@ -85,13 +85,13 @@ public sealed class EquipmentMathService
 
         var matchingSkis = availableSkis
             .Where(e => Math.Abs(e.Size - skiLength) <= tolerance)
-            .OrderBy(e => Math.Abs(e.Size - skiLength))
-            .ToList();
+            .ToList()
+            .OrderBy(e => Math.Abs(e.Size - skiLength));
 
         var matchingPoles = availablePoles
             .Where(e => Math.Abs(e.Size - poleLength) <= tolerance)
-            .OrderBy(e => Math.Abs(e.Size - poleLength))
-            .ToList();
+            .ToList()
+            .OrderBy(e => Math.Abs(e.Size - poleLength));
 
         var matchingBoots = availableBoots
             .Where(e => e.Size == p.ShoeSize)

@@ -234,6 +234,8 @@
     justify-content: space-between;
     gap: 1rem;
     margin-top: 2rem;
+    position: relative;
+    z-index: 1;
 }
 
 .proceed-btn {
@@ -251,12 +253,14 @@
     display: flex;
     align-items: flex-end;
     z-index: 1000;
+    pointer-events: none;
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s ease;
 }
 
 .swap-drawer-overlay.open {
+    pointer-events: auto;
     opacity: 1;
     visibility: visible;
 }

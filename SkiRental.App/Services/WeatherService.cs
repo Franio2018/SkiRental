@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace SkiRental.App.Services;
@@ -33,18 +35,29 @@ public sealed class WeatherService
 {
     private readonly HttpClient _http;
     private readonly ILogger<WeatherService> _logger;
+    private readonly string _apiKey;
+    private readonly double _defaultLat;
+    private readonly double _defaultLon;
+    private readonly int _cacheMinutes;
 
-    // TODO: przenieś do appsettings.json / bezpiecznego vaulta
-    private const string ApiKey = "YOUR_OPENWEATHER_API_KEY";
-
-    // Cache: odświeżaj nie częściej niż co 10 minut
+    // Cache: odświeżaj nie częściej niż co X minut
     private SkiWeatherReport? _cached;
     private DateTime _cacheExpiry = DateTime.MinValue;
 
-    public WeatherService(HttpClient http, ILogger<WeatherService> logger)
+    public WeatherService(HttpClient http, IConfiguration config, ILogger<WeatherService> logger)
     {
-        _http   = http;
-        _logger = logger;
+        _http         = http;
+        _logger       = logger;
+        _apiKey       = config["OpenWeather:ApiKey"];
+        // If API key is missing or placeholder, log warning and use fallback mode
+        if (string.IsNullOrWhiteSpace(_apiKey) || _apiKey == "YOUR_OPENWEATHER_API_KEY")
+        {
+            _logger.LogWarning("OpenWeather API key not configured. Weather service will return fallback reports.");
+            _apiKey = null;
+        }
+        _defaultLat   = double.Parse(config["OpenWeather:DefaultLatitude"]  ?? "49.2992", CultureInfo.InvariantCulture);
+        _defaultLon   = double.Parse(config["OpenWeather:DefaultLongitude"] ?? "19.9496", CultureInfo.InvariantCulture);
+        _cacheMinutes = int.Parse(config["OpenWeather:CacheMinutes"] ?? "10", CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -53,10 +66,14 @@ public sealed class WeatherService
     /// <param name="lat">Szerokość geograficzna stacji narciarskiej.</param>
     /// <param name="lon">Długość geograficzna stacji narciarskiej.</param>
     public async Task<SkiWeatherReport> GetSkiConditionsAsync(
-        double lat = 49.2992,  // domyślnie: Zakopane
-        double lon = 19.9496,
+        double? lat = null,
+        double? lon = null,
         CancellationToken ct = default)
     {
+        // Use configured defaults if not provided
+        var actualLat = lat ?? _defaultLat;
+        var actualLon = lon ?? _defaultLon;
+
         if (_cached is not null && DateTime.UtcNow < _cacheExpiry)
         {
             _logger.LogDebug("Returning cached weather report");
@@ -65,7 +82,7 @@ public sealed class WeatherService
 
         try
         {
-            var url = $"data/2.5/weather?lat={lat}&lon={lon}&appid={ApiKey}&units=metric&lang=pl";
+            var url = $"data/2.5/weather?lat={actualLat}&lon={actualLon}&appid={_apiKey}&units=metric&lang=pl";
             var json = await _http.GetFromJsonAsync<JsonDocument>(url, ct);
 
             if (json is null) return FallbackReport();
@@ -96,7 +113,7 @@ public sealed class WeatherService
             };
 
             _cached     = report;
-            _cacheExpiry = DateTime.UtcNow.AddMinutes(10);
+            _cacheExpiry = DateTime.UtcNow.AddMinutes(_cacheMinutes);
 
             return report;
         }

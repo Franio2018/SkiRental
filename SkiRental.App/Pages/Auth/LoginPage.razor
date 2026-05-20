@@ -48,7 +48,6 @@
                                autocomplete="current-password" />
                     <button type="button" class="password-toggle" @onclick="TogglePasswordVisibility"
                             aria-label="Pokaż/ukryj hasło">
-                        @_passwordIcon
                     </button>
                 </div>
                 <ValidationMessage For="@(() => _model.Password)" />
@@ -108,7 +107,6 @@
     private readonly LoginModel _model = new();
     private bool _isLoggingIn;
     private string _passwordType = "password";
-    private string _passwordIcon = "👁️";
     private string? _errorMessage;
     private string? _successMessage;
 
@@ -148,12 +146,10 @@
         if (_passwordType == "password")
         {
             _passwordType = "text";
-            _passwordIcon = "🙈";
         }
         else
         {
             _passwordType = "password";
-            _passwordIcon = "👁️";
         }
     }
 

@@ -32,9 +32,10 @@ public enum SkiStyle
 public enum EquipmentStatus
 {
     Available = 0,
-    Rented = 1,
-    Maintenance = 2,
-    Retired = 3
+    Reserved = 1,
+    Rented = 2,
+    Maintenance = 3,
+    Retired = 4
 }
 
 /// <summary>

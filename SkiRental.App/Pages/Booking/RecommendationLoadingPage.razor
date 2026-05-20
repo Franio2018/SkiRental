@@ -2,11 +2,13 @@
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
+@using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
 @inject IRecommendationOrchestrator RecommendationOrchestrator
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject BookingStateService BookingState
 
 <PageTitle>Calculating Recommendations - SkiRental</PageTitle>
 
@@ -53,7 +55,10 @@
                 <div class="error-icon">❌</div>
                 <h2>Something went wrong</h2>
                 <p>@_errorMessage</p>
-                <button class="btn-secondary" @onclick="GoBack">Try Again</button>
+                <div class="error-actions">
+                    <button class="btn-secondary" @onclick="GoHome">Go to Home</button>
+                    <button class="btn-primary" @onclick="GoToBooking">Start New Booking</button>
+                </div>
             </div>
         }
     </div>
@@ -70,9 +75,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Parameters = BookingState.GetSelectionParameters();
+
         if (Parameters == null)
         {
-            _errorMessage = "Missing profile parameters. Please start over.";
+            _errorMessage = "No booking parameters found. Please start a new booking from the home page.";
             _isLoading = false;
             return;
         }
@@ -89,20 +96,23 @@
 
             if (_result.Status == RecommendationStatus.NoMatch)
             {
-                // Navigate to no-match page
-                Navigation.NavigateTo($"/no-match?data={Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(Parameters))}");
+                // Store no-match state in BookingStateService
+                BookingState.SetNoMatchState(_result);
+                Navigation.NavigateTo("/no-match");
                 return;
             }
 
+            // Store result in BookingStateService
+            BookingState.SetRecommendationResult(_result);
             _isLoading = false;
 
             // Auto-navigate after a short delay
             await Task.Delay(2000);
-            Navigation.NavigateTo($"/gear-review?data={Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(_result))}");
+            Navigation.NavigateTo("/gear-review");
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.Message;
+            _errorMessage = $"Error calculating recommendations: {ex.Message}";
             _isLoading = false;
         }
     }
@@ -110,16 +120,19 @@
     private async Task StreamExplanationAsync()
     {
         if (Parameters == null) return;
-
+        
         var explanation = BuildStreamingExplanation(Parameters);
         var words = explanation.Split(' ');
-
+        
         for (int i = 0; i < words.Length; i++)
         {
-            _currentExplanation += words[i] + " ";
+            _currentExplanation = string.Join(" ", words[0..i]);
             StateHasChanged();
-            await Task.Delay(50); // Typing effect
+            await Task.Delay(100); // Brief pause for typing effect
         }
+        
+        // Ensure final state is rendered
+        StateHasChanged();
     }
 
     private static string BuildStreamingExplanation(EquipmentSelectionParameters parameters)
@@ -141,6 +154,16 @@
     }
 
     private void GoBack()
+    {
+        Navigation.NavigateTo("/booking");
+    }
+
+    private void GoHome()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private void GoToBooking()
     {
         Navigation.NavigateTo("/booking");
     }

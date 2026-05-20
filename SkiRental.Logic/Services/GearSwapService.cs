@@ -60,6 +60,7 @@ public sealed class GearSwapService : IGearSwapService
             .Where(e => e.Id != excludeEquipmentId)  // Exclude current selection
             .Where(e => Math.Abs(e.Size - idealTarget) <= tolerance)  // Within safety tolerance
             .Select(e => CreateSwapOption(e, idealTarget, parameters))
+            .ToList()
             .OrderByDescending(o => o.FitScore)  // Best fit first
             .ThenBy(o => Math.Abs(o.SizeDelta))  // Then closest to ideal
             .Take(MaxSwapOptions)

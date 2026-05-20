@@ -83,10 +83,10 @@ public sealed class RecommendationOrchestrator : IRecommendationOrchestrator
 
             var candidates = available
                 .Where(e => Math.Abs(e.Size - idealTarget) <= tolerance.MaxDelta)
+                .ToList()
                 .OrderBy(e => Math.Abs(e.Size - idealTarget))
                 .ThenBy(e => category == EquipmentCategory.Skis ? Math.Abs((e.Stiffness ?? 0) - idealStiffness) : 0)
-                .ThenBy(e => e.TotalRentalDays)
-                .ToList();
+                .ThenBy(e => e.TotalRentalDays);
 
             var bestMatch = candidates.FirstOrDefault();
 

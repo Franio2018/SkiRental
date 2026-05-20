@@ -3,11 +3,13 @@
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
 @using SkiRental.Logic.Services
+@using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
 @inject BookingService BookingService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@inject BookingStateService BookingState
 
 <PageTitle>Payment - SkiRental</PageTitle>
 
@@ -117,7 +119,12 @@
                             <div class="card-form">
                                 <div class="form-group">
                                     <label>Card Number</label>
-                                    <input type="text" @bind="_cardNumber" placeholder="1234 5678 9012 3456" maxlength="19" />
+                                    <input type="text"
+                                           value="@_cardNumberDisplay"
+                                           @oninput="OnCardNumberInput"
+                                           placeholder="1234 5678 9012 3456"
+                                           maxlength="19"
+                                           inputmode="numeric" />
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group">
@@ -171,6 +178,7 @@
     private PaymentMethod? _selectedMethod;
     private PaymentMode _paymentMode = PaymentMode.Card;
     private string _cardNumber = string.Empty;
+    private string _cardNumberDisplay = string.Empty;
     private string _cardExpiry = string.Empty;
     private string _cardCvv = string.Empty;
     private string _blikCode = string.Empty;
@@ -184,6 +192,12 @@
 
     private async Task LoadGearSelectionFromQuery()
     {
+        // First try BookingStateService (set by GearReviewPage via state)
+        _gearSelection = BookingState.GetGearSelection();
+        if (_gearSelection != null)
+            return;
+
+        // Fallback: query-string (legacy path / direct link)
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
         var dataParam = query["data"];
@@ -210,11 +224,49 @@
         _paymentError = null;
     }
 
-    private bool CanPay => _selectedMethod.HasValue && 
-        (_selectedMethod == PaymentMethod.Spot || 
-         (_selectedMethod == PaymentMethod.Online && !string.IsNullOrWhiteSpace(_blikCode)) ||
-         (_selectedMethod == PaymentMethod.Spot && 
-          !string.IsNullOrWhiteSpace(_cardNumber) && !string.IsNullOrWhiteSpace(_cardExpiry) && !string.IsNullOrWhiteSpace(_cardCvv)));
+    private bool CanPay => _selectedMethod switch
+    {
+        PaymentMethod.Spot   => true,
+        PaymentMethod.Online => _paymentMode == PaymentMode.Blik
+                              ? IsBlikValid
+                              : IsCardValid,
+        _                    => false
+    };
+
+    private bool IsBlikValid =>
+        _blikCode.Length == 6 && _blikCode.All(char.IsDigit);
+
+    private bool IsCardValid =>
+        IsCardNumberValid(_cardNumber) &&
+        IsExpiryValid(_cardExpiry) &&
+        _cardCvv.Length is 3 or 4 && _cardCvv.All(char.IsDigit);
+
+    private static bool IsCardNumberValid(string number)
+    {
+        var digits = number.Replace(" ", "").Replace("-", "");
+        if (digits.Length is < 13 or > 19 || !digits.All(char.IsDigit)) return false;
+        // Algorytm Luhna
+        int sum = 0;
+        bool alt = false;
+        for (int i = digits.Length - 1; i >= 0; i--)
+        {
+            int n = digits[i] - '0';
+            if (alt) { n *= 2; if (n > 9) n -= 9; }
+            sum += n;
+            alt = !alt;
+        }
+        return sum % 10 == 0;
+    }
+
+    private static bool IsExpiryValid(string expiry)
+    {
+        if (expiry.Length != 5 || expiry[2] != '/') return false;
+        if (!int.TryParse(expiry[..2], out int mm) ||
+            !int.TryParse(expiry[3..], out int yy)) return false;
+        if (mm is < 1 or > 12) return false;
+        var exp = new DateTime(2000 + yy, mm, 1).AddMonths(1);
+        return exp > DateTime.Now;
+    }
 
     private string GetPayButtonText()
     {
@@ -228,6 +280,16 @@
         };
     }
 
+    private void OnCardNumberInput(ChangeEventArgs e)
+    {
+        var raw = new string(((string?)e.Value ?? "").Where(char.IsDigit).ToArray());
+        if (raw.Length > 16) raw = raw[..16];
+        _cardNumber = raw;
+        _cardNumberDisplay = string.Join(" ", Enumerable
+            .Range(0, (raw.Length + 3) / 4)
+            .Select(i => raw.Substring(i * 4, Math.Min(4, raw.Length - i * 4))));
+    }
+
     private async Task ProcessPayment()
     {
         if (_gearSelection == null || !_selectedMethod.HasValue) return;
@@ -237,32 +299,68 @@
 
         try
         {
+            string? blikCode = null;
+            bool isCardPreauth = false;
+
+            if (_selectedMethod == PaymentMethod.Online)
+            {
+                if (_paymentMode == PaymentMode.Blik)
+                {
+                    // Walidacja BLIK
+                    if (!IsBlikValid)
+                    {
+                        _paymentError = "Kod BLIK musi składać się z dokładnie 6 cyfr.";
+                        return;
+                    }
+                    blikCode = _blikCode;
+                }
+                else // Card
+                {
+                    // Dla kart używamy preautoryzacji PayU –
+                    // finalne pobranie nastąpi przy wydaniu sprzętu.
+                    // TODO: Implement InitiateCardPreauthorizationAsync in BookingService
+                    // var preAuthResult = await BookingService.InitiateCardPreauthorizationAsync(
+                    //     _gearSelection.TotalAmount,
+                    //     _cardNumber, _cardExpiry, _cardCvv,
+                    //     _gearSelection.StartTime);
+
+                    // if (!preAuthResult.IsSuccess)
+                    // {
+                    //     _paymentError = $"Błąd płatności kartą: {preAuthResult.ErrorMessage}";
+                    //     return;
+                    // }
+                    // isCardPreauth = true;
+                    
+                    // Temporary fallback - treat card as spot payment for now
+                    _paymentError = "Płatność kartą online jest w trakcie implementacji. Wybierz płatność BLIK lub na miejscu.";
+                    return;
+                }
+            }
+
             var request = new CreateBookingRequest
             {
                 CustomerProfileId = _gearSelection.CustomerProfileId,
                 EquipmentIds = _gearSelection.EquipmentIds.Values.ToList(),
                 StartTime = _gearSelection.StartTime,
                 EndTime = _gearSelection.EndTime,
-                BlikCode = _selectedMethod == PaymentMethod.Online ? _blikCode : null
+                BlikCode = blikCode,
+                Notes = isCardPreauth ? "Preautoryzacja kartą" : null
             };
-
-            // TODO: Add card payment handling for online card payments
-            // For now, only BLIK is implemented
 
             var result = await BookingService.CreateBookingAsync(request);
 
             if (result.IsSuccess)
             {
-                var confirmationData = new
+                BookingState.SetConfirmation(new ConfirmationData
                 {
-                    RentalId = result.RentalId,
-                    QrCode = result.QrCode,
-                    TotalAmount = result.TotalAmount,
-                    PaymentMethod = _selectedMethod.Value
-                };
-
-                var dataParam = Uri.EscapeDataString(System.Text.Json.JsonSerializer.Serialize(confirmationData));
-                Navigation.NavigateTo($"/confirmation?data={dataParam}");
+                    RentalId      = result.RentalId!.Value,
+                    QrCode        = result.QrCode ?? string.Empty,
+                    TotalAmount   = result.TotalAmount ?? 0m,
+                    PaymentMethod = _selectedMethod!.Value,
+                    CreatedAt     = DateTime.Now
+                });
+                BookingState.ClearGearSelection();
+                Navigation.NavigateTo("/confirmation");
             }
             else
             {
@@ -271,7 +369,7 @@
         }
         catch (Exception ex)
         {
-            _paymentError = ex.Message;
+            _paymentError = $"Błąd: {ex.Message}";
         }
         finally
         {

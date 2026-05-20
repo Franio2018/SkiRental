@@ -1,9 +1,11 @@
 @page "/no-match"
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
+@using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
 @inject NavigationManager Navigation
+@inject BookingStateService BookingState
 
 <PageTitle>No Gear Available - SkiRental</PageTitle>
 
@@ -123,54 +125,19 @@
 
 @code {
     private List<NoMatchReason> _noMatchReasons = new();
-    private EquipmentSelectionParameters? _parameters;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        await LoadNoMatchDataFromQuery();
-    }
+        var recommendationResult = BookingState.GetNoMatchState();
+        BookingState.ClearNoMatchState(); // Clear after reading
 
-    private async Task LoadNoMatchDataFromQuery()
-    {
-        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-        var dataParam = query["data"];
-
-        if (string.IsNullOrEmpty(dataParam))
+        if (recommendationResult == null || recommendationResult.NoMatchReasons == null || !recommendationResult.NoMatchReasons.Any())
         {
             Navigation.NavigateTo("/booking");
             return;
         }
 
-        try
-        {
-            _parameters = System.Text.Json.JsonSerializer.Deserialize<EquipmentSelectionParameters>(dataParam);
-            
-            // Generate mock no-match reasons for demo
-            // In real implementation, these would come from RecommendationResult
-            if (_parameters != null)
-            {
-                _noMatchReasons = new List<NoMatchReason>
-                {
-                    new NoMatchReason
-                    {
-                        Category = EquipmentCategory.Skis,
-                        ConstraintDescription = $"No skis in {_parameters.Height - 10:F0}–{_parameters.Height + 10:F0}cm range available",
-                        IdealSize = _parameters.Height + 25, // Classic ski calculation
-                        MinAvailable = 160,
-                        MaxAvailable = 175,
-                        AvailableSizes = "160cm, 165cm, 170cm, 175cm",
-                        AvailablePositions = new List<GearPosition> { GearPosition.Center, GearPosition.Forward },
-                        RecommendedSizes = new List<string> { "165cm", "170cm" },
-                        FitNotes = "Center mount recommended for your height and classic style"
-                    }
-                };
-            }
-        }
-        catch
-        {
-            Navigation.NavigateTo("/booking");
-        }
+        _noMatchReasons = recommendationResult.NoMatchReasons.ToList();
     }
 
     private void GoBack()

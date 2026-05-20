@@ -64,6 +64,9 @@ public sealed class EfEquipmentRepository : IEquipmentRepository
         _db.Equipment.Update(equipment);
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+        => await _db.Equipment.AnyAsync(e => e.Id == id, ct);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -141,5 +144,17 @@ public sealed class EfRentalRepository : IRentalRepository
             .Select(re => re.Rental)
             .AsNoTracking()
             .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyDictionary<int, CustomerRentalSummary>>
+        GetRentalSummariesByCustomerIdsAsync(IEnumerable<int> customerIds, CancellationToken ct = default)
+    {
+        var ids = customerIds.ToList();
+        return await _db.Rentals
+            .Where(r => ids.Contains(r.CustomerProfileId))
+            .GroupBy(r => r.CustomerProfileId)
+            .Select(g => new { CustomerId = g.Key, TotalRentals = g.Count() })
+            .AsNoTracking()
+            .ToDictionaryAsync(x => x.CustomerId, x => new CustomerRentalSummary { TotalRentals = x.TotalRentals }, ct);
     }
 }
