@@ -18,6 +18,13 @@
 10. [Testy jednostkowe](#testy)
 11. [Roadmap](#roadmap)
 
+### 📚 English documentation (per project)
+
+Detailed, up-to-date docs for each project live in **[docs/README.md](docs/README.md)**:
+
+- [Architecture](docs/Architecture.md) · [Domain](docs/SkiRental.Domain.md) · [Logic](docs/SkiRental.Logic.md)
+- [App](docs/SkiRental.App.md) · [UI.Shared](docs/SkiRental.UI.Shared.md) · [Api](docs/SkiRental.Api.md) · [Tests](docs/SkiRental.Tests.md)
+
 ---
 
 ## 🏗️ Architektura rozwiązania <a name="architektura"></a>

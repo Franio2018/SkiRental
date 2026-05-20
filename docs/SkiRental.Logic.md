@@ -1,798 +1,372 @@
-# SkiRental.Logic - Business Logic Layer Documentation
+# SkiRental.Logic — Business Logic & Data Access
 
 ## Overview
 
-The `SkiRental.Logic` project contains the application's business logic, services, repositories, and data access layer. It implements the core business rules and orchestrates operations between the domain models and external systems like payment providers and databases.
+**SkiRental.Logic** implements application services, EF Core persistence, external integrations (PayU, email, SMS), and dependency injection shared by **SkiRental.App** and **SkiRental.Api**. It references only **SkiRental.Domain**.
 
-## Project Structure
+| Property | Value |
+|----------|-------|
+| SDK | `Microsoft.NET.Sdk` |
+| Target | `net9.0` |
+
+---
+
+## Project structure
 
 ```
 SkiRental.Logic/
 ├── Interfaces/
-│   └── IInterfaces.cs         # Repository and service contracts
+│   └── IInterfaces.cs              # Repositories, IPaymentProvider, orchestrators
+├── Options/
+│   └── SkiRentalOptions.cs         # Section "SkiRental"
 ├── Services/
-│   ├── EquipmentMathService.cs    # Equipment recommendation algorithm
-│   ├── BookingService.cs          # Rental lifecycle management
-│   ├── PaymentService.cs          # Payment processing orchestration
-│   └── AnalyticsService.cs        # Business intelligence calculations
-├── Migrations/                    # EF Core database migrations
-├── SkiRentalDbContext.cs          # Entity Framework DbContext
-├── SkiRentalDbContextFactory.cs   # DbContext factory for design-time tools
-├── ServiceCollectionExtensions.cs # DI registration extensions
-└── SkiRental.Logic.csproj
+│   ├── EfRepositories.cs           # IUser, IEquipment, IRental
+│   ├── EquipmentMathService.cs     # Sizing formulas ("Inteligentny Asystent")
+│   ├── RecommendationOrchestrator.cs
+│   ├── GearSwapService.cs
+│   ├── BookingService.cs           # Rental lifecycle
+│   ├── RentalRulesService.cs       # Season window, fees
+│   ├── PaymentService.cs           # PayUOptions + PayUPaymentProvider
+│   ├── UserService.cs              # BCrypt, lockout, registration
+│   ├── AnalyticsService.cs
+│   ├── AnalyticsExportService.cs
+│   ├── NotificationService.cs      # SMTP + Twilio
+│   └── NotificationInboxService.cs
+├── SkiRentalDbContext.cs
+├── SkiRentalDbContextFactory.cs    # Design-time EF
+├── ServiceCollectionExtensions.cs  # AddSkiRentalServices
+└── Migrations/
+    ├── 20260510162110_InitialCreate.cs
+    └── 20260520225803_AddNotificationsAndInventory.cs
 ```
 
-## Core Interfaces
-
-**File**: `Interfaces/IInterfaces.cs`
-
-### IEquipmentRepository
-
-Manages equipment data access operations.
-
-```csharp
-public interface IEquipmentRepository
-{
-    Task<Equipment?> GetByIdAsync(int id, CancellationToken ct = default);
-    Task<IReadOnlyList<Equipment>> GetAllAsync(CancellationToken ct = default);
-    Task<IReadOnlyList<Equipment>> GetAvailableAsync(CancellationToken ct = default);
-    Task<IReadOnlyList<Equipment>> GetAvailableByStyleAsync(
-        SkiStyle style, EquipmentCategory category, CancellationToken ct = default);
-    Task<Equipment> CreateAsync(Equipment equipment, CancellationToken ct = default);
-    Task<Equipment> UpdateAsync(Equipment equipment, CancellationToken ct = default);
-    Task DeleteAsync(int id, CancellationToken ct = default);
-}
-```
-
-#### Methods
-
-| Method | Purpose | Parameters | Returns |
-|--------|---------|------------|---------|
-| `GetByIdAsync` | Retrieve equipment by ID | `id`, `ct` | `Equipment?` |
-| `GetAllAsync` | Get all equipment | `ct` | `IReadOnlyList<Equipment>` |
-| `GetAvailableAsync` | Get available equipment only | `ct` | `IReadOnlyList<Equipment>` |
-| `GetAvailableByStyleAsync` | Filter by style and category | `style`, `category`, `ct` | `IReadOnlyList<Equipment>` |
-| `CreateAsync` | Add new equipment | `equipment`, `ct` | `Equipment` |
-| `UpdateAsync` | Update existing equipment | `equipment`, `ct` | `Equipment` |
-| `DeleteAsync` | Remove equipment | `id`, `ct` | `Task` |
-
-### IRentalRepository
-
-Manages rental transaction data access.
-
-```csharp
-public interface IRentalRepository
-{
-    Task<Rental?> GetByIdAsync(int id, CancellationToken ct = default);
-    Task<IReadOnlyList<Rental>> GetByCustomerIdAsync(int customerId, CancellationToken ct = default);
-    Task<IReadOnlyList<Rental>> GetActiveRentalsAsync(CancellationToken ct = default);
-    Task<IReadOnlyList<Rental>> GetOverdueRentalsAsync(CancellationToken ct = default);
-    Task<Rental> CreateAsync(Rental rental, CancellationToken ct = default);
-    Task<Rental> UpdateAsync(Rental rental, CancellationToken ct = default);
-    Task<IReadOnlyList<Rental>> GetRentalsByDateRangeAsync(
-        DateTime start, DateTime end, CancellationToken ct = default);
-}
-```
-
-#### Methods
-
-| Method | Purpose | Parameters | Returns |
-|--------|---------|------------|---------|
-| `GetByIdAsync` | Retrieve rental by ID | `id`, `ct` | `Rental?` |
-| `GetByCustomerIdAsync` | Get customer's rental history | `customerId`, `ct` | `IReadOnlyList<Rental>` |
-| `GetActiveRentalsAsync` | Get currently active rentals | `ct` | `IReadOnlyList<Rental>` |
-| `GetOverdueRentalsAsync` | Get overdue rentals | `ct` | `IReadOnlyList<Rental>` |
-| `CreateAsync` | Create new rental | `rental`, `ct` | `Rental` |
-| `UpdateAsync` | Update existing rental | `rental`, `ct` | `Rental` |
-| `GetRentalsByDateRangeAsync` | Get rentals in date range | `start`, `end`, `ct` | `IReadOnlyList<Rental>` |
-
-### IPaymentProvider
-
-Payment processing abstraction for multiple payment gateways.
-
-```csharp
-public interface IPaymentProvider
-{
-    Task<PaymentResult> InitiateBlikPayment(
-        decimal amount, string blikCode, string orderId, string description);
-    
-    Task<PaymentResult> PreauthorizePayment(
-        decimal amount, string orderId, string description);
-    
-    Task<PaymentResult> CapturePreauthorization(
-        string externalTransactionId, decimal amount);
-    
-    Task<PaymentResult> RefundPayment(
-        string externalTransactionId, decimal? partialAmount = null);
-    
-    Task<PaymentResult> CheckPaymentStatus(string externalTransactionId);
-}
-```
-
-#### Payment Operations
-
-| Method | Purpose | Use Case |
-|--------|---------|----------|
-| `InitiateBlikPayment` | Process BLIK mobile payment | Immediate payment |
-| `PreauthorizePayment` | Hold funds for later capture | Rental deposits |
-| `CapturePreauthorization` | Finalize pre-authorized payment | Rental completion |
-| `RefundPayment` | Process refunds | Returns/cancellations |
-| `CheckPaymentStatus` | Verify payment state | Status updates |
+`PayUPaymentProvider` and `PayUOptions` live in `PaymentService.cs` (same assembly).
 
 ---
 
-## Business Services
-
-### EquipmentMathService
-
-**File**: `Services/EquipmentMathService.cs`
-
-Implements the "Intelligent Assistant" algorithm for equipment recommendations based on user physical data and skiing preferences.
-
-#### Algorithm Overview
-
-The service uses scientifically-based formulas combined with empirical corrections to recommend optimal equipment:
-
-1. **Ski Length Calculation**
-   - Classic Style: `Height + (20-30cm)` based on skill level
-   - Skate Style: `Height + (10-15cm)` based on skill level
-   - BMI Correction: `±5cm` for under/overweight users
-
-2. **Pole Length Calculation**
-   - Classic: `Height × 0.85`
-   - Skate: `Height × 0.90`
-
-3. **Stiffness (Flex Index)**
-   - Base values by skill level (42-72)
-   - BMI adjustments: `±5 points`
-
-#### Constants
+## Composition: AddSkiRentalServices
 
 ```csharp
-private const decimal ClassicSkiOffsetMin = 20m;
-private const decimal ClassicSkiOffsetMax = 30m;
-private const decimal ClassicPoleMultiplier = 0.85m;
-private const decimal SkateSkiOffsetMin = 10m;
-private const decimal SkateSkiOffsetMax = 15m;
-private const decimal SkatePoleMultiplier = 0.90m;
-private const decimal BmiCorrectionCm = 5m;
-private const decimal BmiNormalMin = 18.5m;
-private const decimal BmiNormalMax = 24.9m;
+public static IServiceCollection AddSkiRentalServices(
+    this IServiceCollection services,
+    string? connectionString = null,
+    bool useInMemory = false,
+    IConfiguration? configuration = null)
 ```
 
-#### Base Stiffness Mapping
+| Registration | Lifetime | Implementation |
+|--------------|----------|----------------|
+| `SkiRentalDbContext` | Scoped | SQLite / SQL Server / InMemory |
+| `IUserRepository` | Scoped | `EfUserRepository` |
+| `IEquipmentRepository` | Scoped | `EfEquipmentRepository` |
+| `IRentalRepository` | Scoped | `EfRentalRepository` |
+| `EquipmentMathService` | Scoped | |
+| `BookingService` | Scoped | |
+| `AnalyticsService` | Scoped | |
+| `UserService` | Scoped | |
+| `IRecommendationOrchestrator` | Scoped | `RecommendationOrchestrator` |
+| `IGearSwapService` | Scoped | `GearSwapService` |
+| `INotificationService` | Scoped | `NotificationService` |
+| `RentalRulesService` | Scoped | |
+| `NotificationInboxService` | Scoped | |
+| `AnalyticsExportService` | Scoped | |
+| `SkiRentalOptions` | Options | From config section `SkiRental` |
 
-| SkillLevel | BaseFlex | Description |
-|------------|-----------|-------------|
-| Beginner | 42 | Soft flex for learning |
-| Intermediate | 52 | Medium flex for progress |
-| Advanced | 62 | Stiff flex for performance |
-| Expert | 72 | Very stiff for racing |
+**Not registered here:** `IPaymentProvider` — each host registers `PayUPaymentProvider` with `IHttpClientFactory`.
 
-#### Public Methods
-
-##### RecommendAsync
+**Migrations helper:**
 
 ```csharp
-public async Task<EquipmentRecommendation> RecommendAsync(
-    EquipmentSelectionParameters parameters, 
-    CancellationToken ct = default)
-```
-
-**Purpose**: Generate complete equipment recommendation with available inventory.
-
-**Parameters**:
-- `parameters`: User physical data and preferences
-- `ct`: Cancellation token
-
-**Returns**: `EquipmentRecommendation` with calculated values and matching equipment
-
-**Process**:
-1. Calculate optimal ski length, pole length, and stiffness
-2. Apply BMI corrections if needed
-3. Query available equipment from repository
-4. Filter by size tolerance (±5cm)
-5. Rank by closeness to calculated values
-6. Return recommendation with explanations
-
-##### CalculateSkiLength
-
-```csharp
-public decimal CalculateSkiLength(EquipmentSelectionParameters parameters)
-```
-
-**Formula**: 
-```
-baseOffset = interpolate(minOffset, maxOffset, skillLevel)
-length = height + baseOffset + bmiCorrection
-return roundToNearestHalf(length, 2.5m)
-```
-
-##### CalculatePoleLengthCm
-
-```csharp
-public decimal CalculatePoleLengthCm(EquipmentSelectionParameters parameters)
-```
-
-**Formula**:
-```
-multiplier = style == Classic ? 0.85m : 0.90m
-length = height × multiplier
-return roundToNearestHalf(length, 2.5m)
-```
-
-##### CalculateStiffness
-
-```csharp
-public int CalculateStiffness(EquipmentSelectionParameters parameters)
-```
-
-**Formula**:
-```
-baseStiffness = BaseStiffness[skillLevel]
-bmiCorrection = overweight ? +5 : underweight ? -5 : 0
-return clamp(baseStiffness + bmiCorrection, 30, 90)
-```
-
-#### Usage Example
-
-```csharp
-var parameters = new EquipmentSelectionParameters
-{
-    Height = 175,
-    Weight = 78m,
-    ShoeSize = 43,
-    Style = SkiStyle.Classic,
-    SkillLevel = SkillLevel.Intermediate
-};
-
-var recommendation = await equipmentMathService.RecommendAsync(parameters);
-
-// Results:
-// RecommendedSkiLength = 202.5 cm
-// RecommendedPoleLength = 147.5 cm  
-// RecommendedStiffness = 57
-// BmiCorrectionApplied = true (BMI = 25.5, overweight)
+await serviceProvider.ApplyMigrationsAsync();
 ```
 
 ---
 
-### BookingService
-
-**File**: `Services/BookingService.cs`
-
-Orchestrates the complete rental lifecycle from creation to completion.
-
-#### Core Responsibilities
-
-1. **Rental Creation**: Validate and create new rentals
-2. **Equipment Assignment**: Select and reserve equipment
-3. **Payment Processing**: Coordinate with payment providers
-4. **Status Management**: Handle rental state transitions
-5. **QR Code Generation**: Create return verification codes
-
-#### Key Methods
-
-##### CreateBookingAsync
-
-```csharp
-public async Task<BookingResult> CreateBookingAsync(
-    CreateBookingRequest request, 
-    CancellationToken ct = default)
-```
-
-**Process**:
-1. Validate user profile and equipment availability
-2. Calculate total cost based on duration and equipment rates
-3. Generate unique QR code for return verification
-4. Create rental entity with proper status
-5. Process payment (pre-authorization or immediate)
-6. Update equipment status to 'Rented'
-7. Return booking confirmation
-
-##### ProcessReturnAsync
-
-```csharp
-public async Task<ReturnResult> ProcessReturnAsync(
-    string qrCode, 
-    ReturnConditionData conditionData,
-    CancellationToken ct = default)
-```
-
-**Process**:
-1. Validate QR code and locate rental
-2. Check return time for overdue calculation
-3. Update equipment condition ratings
-4. Process final payment capture
-5. Update equipment status to 'Available'
-6. Generate return receipt
-
-##### CancelBookingAsync
-
-```csharp
-public async Task<CancellationResult> CancelBookingAsync(
-    int rentalId, 
-    CancellationToken ct = default)
-```
-
-**Process**:
-1. Verify cancellation eligibility
-2. Process refund if payment was made
-3. Release equipment back to inventory
-4. Update rental status to 'Cancelled'
-5. Send cancellation notification
-
-#### Business Rules
-
-- **Duration Limits**: Maximum 24 hours per rental
-- **Deposit Requirements**: Pre-authorization for high-value equipment
-- **Overdue Penalties**: Additional charges for late returns
-- **Condition Tracking**: 1-5 scale for equipment condition
-- **Cancellation Window**: Free cancellation up to 1 hour before start
-
----
-
-### PaymentService
-
-**File**: `Services/PaymentService.cs`
-
-Manages payment processing workflow and integration with external payment providers.
-
-#### Payment Workflow
-
-1. **Pre-authorization**: Hold funds when rental starts
-2. **Capture**: Finalize payment on rental completion
-3. **Refund**: Process returns and cancellations
-4. **Status Tracking**: Monitor payment states
-
-#### Key Methods
-
-##### ProcessRentalPaymentAsync
-
-```csharp
-public async Task<PaymentProcessingResult> ProcessRentalPaymentAsync(
-    Rental rental, 
-    PaymentMethod paymentMethod,
-    CancellationToken ct = default)
-```
-
-**Strategies**:
-- **BLIK**: Immediate payment for short rentals
-- **Pre-authorization**: Hold amount for longer rentals
-- **Multi-payment**: Split payments for expensive equipment
-
-##### CapturePaymentAsync
-
-```csharp
-public async Task<PaymentCaptureResult> CapturePaymentAsync(
-    string externalTransactionId, 
-    decimal finalAmount,
-    CancellationToken ct = default)
-```
-
-**Process**:
-1. Verify pre-authorization exists
-2. Calculate final amount (including overdue fees)
-3. Capture payment from provider
-4. Update payment records
-5. Send receipt
-
-##### ProcessRefundAsync
-
-```csharp
-public async Task<RefundResult> ProcessRefundAsync(
-    int rentalId, 
-    decimal? partialAmount = null,
-    CancellationToken ct = default)
-```
-
-**Refund Types**:
-- **Full Refund**: Complete rental cancellation
-- **Partial Refund**: Equipment issues or service problems
-- **Overage Refund**: Deposit return after equipment return
-
-#### Payment Provider Integration
-
-```csharp
-public class PayUPaymentProvider : IPaymentProvider
-{
-    private readonly PayUOptions _options;
-    private readonly HttpClient _httpClient;
-    private readonly ILogger<PayUPaymentProvider> _logger;
-
-    // BLIK payment implementation
-    public async Task<PaymentResult> InitiateBlikPayment(
-        decimal amount, string blikCode, string orderId, string description)
-    
-    // Pre-authorization for rental deposits
-    public async Task<PaymentResult> PreauthorizePayment(
-        decimal amount, string orderId, string description)
-    
-    // Capture pre-authorized funds
-    public async Task<PaymentResult> CapturePreauthorization(
-        string externalTransactionId, decimal amount)
-    
-    // Refund processing
-    public async Task<PaymentResult> RefundPayment(
-        string externalTransactionId, decimal? partialAmount = null)
-    
-    // Status verification
-    public async Task<PaymentResult> CheckPaymentStatus(string externalTransactionId)
-}
-```
-
----
-
-### AnalyticsService
-
-**File**: `Services/AnalyticsService.cs`
-
-Provides business intelligence and utilization analytics for fleet management.
-
-#### Key Metrics
-
-##### Utilization Rate
-
-```csharp
-public async Task<UtilizationReport> CalculateUtilizationRateAsync(
-    int equipmentId, 
-    DateTime seasonStart, 
-    DateTime seasonEnd,
-    CancellationToken ct = default)
-```
-
-**Formula**:
-```
-UtilizationRate = Σ(RentalHours) / TotalSeasonHours
-```
-
-**Report Contents**:
-- Total rented hours
-- Season available hours  
-- Utilization rate (0.0 - 1.0)
-- Utilization percentage
-- Revenue generated
-- Maintenance downtime
-
-##### Fleet Analytics
-
-```csharp
-public async Task<FleetAnalyticsReport> GetFleetAnalyticsAsync(
-    DateTime startDate, 
-    DateTime endDate,
-    CancellationToken ct = default)
-```
-
-**Metrics**:
-- **Overall Utilization**: Fleet-wide usage percentage
-- **Revenue per Equipment**: Financial performance
-- **Maintenance Frequency**: Service interval analysis
-- **Popular Equipment**: Most rented items
-- **Peak Usage Times**: Demand patterns
-
-##### Customer Analytics
-
-```csharp
-public async Task<CustomerAnalyticsReport> GetCustomerAnalyticsAsync(
-    DateTime startDate, 
-    DateTime endDate,
-    CancellationToken ct = default)
-```
-
-**Insights**:
-- **Customer Retention**: Repeat rental rates
-- **Average Rental Value**: Customer spending patterns
-- **Skill Level Distribution**: User demographics
-- **Style Preferences**: Classic vs Skate popularity
-
----
-
-## Data Access Layer
+## Database context
 
 ### SkiRentalDbContext
 
-**File**: `SkiRentalDbContext.cs`
+**DbSets:** `AppUsers`, `Equipment`, `UserProfiles`, `Rentals`, `RentalEquipments`, `Payments`, `AppNotifications`
 
-Entity Framework Core context with optimized configurations.
+**OnModelCreating highlights:**
 
-#### Entity Configurations
+- Unique index on `Equipment.SerialNumber`
+- Unique index on `Rental.QrCode` (when present)
+- Precision on `decimal` columns (rates, amounts, weight)
+- Seed data: demo users (`owner`, `worker`, `user`) and sample equipment
+- Relationships: rental → customer profile, rental-equipment M:N, payments
 
-##### Equipment Configuration
+**Provider selection** (in `AddSkiRentalServices`):
 
-```csharp
-builder.Entity<Equipment>(entity =>
-{
-    entity.HasKey(e => e.Id);
-    entity.Property(e => e.SerialNumber).IsRequired().HasMaxLength(100);
-    entity.HasIndex(e => e.SerialNumber).IsUnique();
-    entity.Property(e => e.DailyRate).HasPrecision(8, 2);
-    entity.Property(e => e.Size).HasPrecision(5, 1);
-    entity.HasMany(e => e.RentalEquipments)
-          .WithOne(re => re.Equipment)
-          .HasForeignKey(re => re.EquipmentId);
-});
-```
+- `useInMemory` → `UseInMemoryDatabase("SkiRentalTest")`
+- Connection contains `Data Source=` or ends with `.db` → **SQLite**
+- Otherwise → **SQL Server**
 
-##### Rental Configuration
+### Migrations
 
-```csharp
-builder.Entity<Rental>(entity =>
-{
-    entity.HasKey(e => e.Id);
-    entity.Property(e => e.TotalAmount).HasPrecision(10, 2);
-    entity.Property(e => e.PreauthorizedAmount).HasPrecision(10, 2);
-    entity.Property(e => e.QrCode).HasMaxLength(500);
-    entity.HasIndex(e => e.QrCode).IsUnique();
-    entity.HasOne(e => e.Customer)
-          .WithMany(u => u.Rentals)
-          .HasForeignKey(e => e.CustomerProfileId);
-});
-```
+| Migration | Adds |
+|-----------|------|
+| `InitialCreate` | Core schema |
+| `AddNotificationsAndInventory` | Notifications, inventory refinements |
 
-##### UserProfile Configuration
-
-```csharp
-builder.Entity<UserProfile>(entity =>
-{
-    entity.HasKey(e => e.Id);
-    entity.Property(e => e.Weight).HasPrecision(5, 1);
-    entity.Property(e => e.Height).IsRequired();
-    entity.Property(e => e.ShoeSize).IsRequired();
-    entity.HasMany(e => e.Rentals)
-          .WithOne(r => r.Customer)
-          .HasForeignKey(r => r.CustomerProfileId);
-});
-```
-
-#### Performance Optimizations
-
-- **Query Optimization**: Eager loading for related data
-- **Indexing Strategy**: Strategic indexes on frequently queried fields
-- **Batch Operations**: Bulk updates for status changes
-- **Connection Pooling**: Configured for high concurrency
+Design-time factory: `SkiRentalDbContextFactory` — use startup project **App** or **Api**.
 
 ---
 
-## Dependency Injection Configuration
+## Repository contracts
 
-**File**: `ServiceCollectionExtensions.cs`
+### IUserRepository
 
-### Service Registration
+| Method | Description |
+|--------|-------------|
+| `GetByUsernameAsync` | Case-insensitive login lookup |
+| `GetByIdAsync`, `GetAllAsync` | Admin / staff management |
+| `CreateAsync`, `UpdateAsync`, `DeleteAsync` | Account CRUD |
+| `UsernameExistsAsync` | Registration check |
+| `GetProfileByUserIdAsync` | Linked `UserProfile` |
+| `UpsertProfileAsync` | Create/update profile for user |
 
-```csharp
-public static class ServiceCollectionExtensions
-{
-    public static IServiceCollection AddSkiRentalLogic(
-        this IServiceCollection services, 
-        IConfiguration configuration)
-    {
-        // Database context
-        services.AddDbContext<SkiRentalDbContext>(options =>
-            options.UseSqlite(configuration.GetConnectionString("DefaultConnection")));
+### IEquipmentRepository
 
-        // Repositories
-        services.AddScoped<IEquipmentRepository, EfEquipmentRepository>();
-        services.AddScoped<IRentalRepository, EfRentalRepository>();
+| Method | Description |
+|--------|-------------|
+| `GetAvailableByStyleAsync` | Filter by `SkiStyle` + `EquipmentCategory` |
+| `GetByIdAsync`, `GetAllAsync` | |
+| `UpdateStatusAsync` | Status transitions |
+| `GetByRentalIdAsync` | Equipment on a rental |
+| `CreateAsync`, `UpdateAsync`, `ExistsAsync` | Fleet management |
 
-        // Domain services
-        services.AddScoped<EquipmentMathService>();
-        services.AddScoped<BookingService>();
-        services.AddScoped<PaymentService>();
-        services.AddScoped<AnalyticsService>();
+### IRentalRepository
 
-        // Payment providers
-        services.AddScoped<IPaymentProvider, PayUPaymentProvider>();
+| Method | Description |
+|--------|-------------|
+| `GetByIdAsync`, `GetByQrCodeAsync` | Return flow |
+| `GetActiveRentalsAsync`, `GetAllRentalsAsync` | Operations / analytics |
+| `GetByCustomerIdAsync` | My rentals |
+| `CreateAsync`, `UpdateAsync` | |
+| `GetRentalsForUtilizationAsync` | Per-equipment season stats |
+| `GetRentalSummariesByCustomerIdsAsync` | Batch summaries for management UI |
 
-        return services;
-    }
-}
+---
+
+## Core services
+
+### EquipmentMathService — intelligent assistant
+
+Pure sizing math (FIS-inspired) before inventory matching.
+
+**Ski length**
+
+- Classic: `Height + interpolate(20..30 cm)` by skill
+- Skate: `Height + interpolate(10..15 cm)` by skill
+- BMI correction: ±5 cm if under/over normal BMI (18.5–24.9)
+- Rounded to nearest 2.5 cm
+
+**Pole length**
+
+- Classic: `Height × 0.85`
+- Skate: `Height × 0.90`
+
+**Stiffness (flex index)**
+
+| SkillLevel | Base flex |
+|------------|-----------|
+| Beginner | 42 |
+| Intermediate | 52 |
+| Advanced | 62 |
+| Expert | 72 |
+
+BMI adjustment ±5, clamped to sensible range.
+
+**Public API:** `RecommendAsync`, `CalculateSkiLength`, `CalculatePoleLengthCm`, `CalculateStiffness`, explanation builders.
+
+---
+
+### RecommendationOrchestrator
+
+Implements `IRecommendationOrchestrator`.
+
+- Calls `EquipmentMathService` for targets
+- For each category in `RentalEquipmentCategories.All`, queries available stock
+- Applies tolerances (e.g. ±5 cm skis/poles)
+- Sets `NoMatchReason` when inventory cannot satisfy
+- Returns `RecommendationResult` for the page-based UI
+
+---
+
+### GearSwapService
+
+Implements `IGearSwapService`.
+
+- Returns `List<SwapOption>` for a category
+- Excludes currently selected equipment id
+- Scores alternatives within safety tolerance for customer-facing swap drawer
+
+---
+
+### BookingService — rental lifecycle
+
+Central orchestrator; uses explicit transactions and `ExecuteUpdateAsync` for race-safe reservations.
+
+#### Status flow
+
+```
+CreateBookingAsync     → Pending  + equipment Reserved
+ActivateRentalAsync    → Active   + equipment Rented
+ProcessReturnAsync     → Completed + equipment Available
+CancelBookingAsync     → Cancelled + release equipment
 ```
 
-### Configuration Options
+#### CreateBookingAsync
 
-```csharp
-public class PayUOptions
-{
-    public string PosId { get; set; } = string.Empty;
-    public string SignatureKey { get; set; } = string.Empty;
-    public string ClientId { get; set; } = string.Empty;
-    public string ClientSecret { get; set; } = string.Empty;
-    public string BaseUrl { get; set; } = string.Empty;
-    public string NotifyUrl { get; set; } = string.Empty;
-}
-```
+1. `RentalRulesService.ValidateBookingWindow`
+2. Serializable transaction
+3. For each equipment id: atomic `Available` → `Reserved` (fails if race lost)
+4. Calculate `TotalAmount` from daily rates × duration
+5. Generate unique `QrCode`
+6. Optional BLIK or pre-auth via `IPaymentProvider`
+7. Persist rental + `RentalEquipment` rows
+8. In-app notification via `NotificationInboxService`
 
----
+#### ActivateRentalAsync
 
-## Database Migrations
+Worker confirms pickup: `Pending` → `Active`, equipment → `Rented`.
 
-### Migration Strategy
+#### ProcessReturnAsync
 
-Migrations are managed using EF Core tools with the following workflow:
+- Resolve rental by QR
+- Record `ConditionAtReturn`, late fees via rules
+- Capture pre-auth or mark paid
+- Equipment → `Available`, rental → `Completed`
 
-```bash
-# Add new migration
-dotnet ef migrations add MigrationName --project SkiRental.Logic
+#### DTOs (in `BookingService.cs`)
 
-# Update database
-dotnet ef database update --project SkiRental.Logic
-
-# Generate SQL script
-dotnet ef migrations script --project SkiRental.Logic
-```
-
-### Current Migrations
-
-1. **InitialCreate**: Base schema with all entities
-2. **AddEquipmentMaintenance**: Added maintenance tracking
-3. **AddPaymentEnhancements**: Enhanced payment processing
-4. **AddQRCodeIndexing**: Performance optimization for QR lookups
+- `CreateBookingRequest`, `BookingResult`
+- `ReturnResult`, `ActivationResult`, `CancelResult`
 
 ---
 
-## Error Handling and Logging
+### RentalRulesService
 
-### Exception Strategy
+Bound to `SkiRentalOptions`:
 
-```csharp
-public class BusinessException : Exception
-{
-    public string ErrorCode { get; }
-    public Dictionary<string, object> Context { get; }
-    
-    public BusinessException(string errorCode, string message, 
-        Dictionary<string, object>? context = null) 
-        : base(message)
-    {
-        ErrorCode = errorCode;
-        Context = context ?? new Dictionary<string, object>();
-    }
-}
-```
+| Option | Typical use |
+|--------|-------------|
+| `SeasonStart`, `SeasonEnd` | Reject bookings outside season |
+| `MaxRentalDaysPerBooking` | Default 14 |
+| `LateFeePercentPerHour` | Overdue charges |
+| `DamageSurchargeThresholdCondition` | Condition below threshold triggers surcharge |
+| `DamageSurchargePercent` | % of rental or fixed logic |
+| `SupportEmail`, `SupportPhone` | UI / notifications |
 
-### Error Codes
-
-| Code | Description | Severity |
-|------|-------------|----------|
-| `EQUIPMENT_NOT_FOUND` | Equipment doesn't exist | Error |
-| `EQUIPMENT_NOT_AVAILABLE` | Equipment is currently rented | Error |
-| `INVALID_USER_DATA` | User profile validation failed | Error |
-| `PAYMENT_FAILED` | Payment processing failed | Error |
-| `QR_CODE_INVALID` | QR code not found or expired | Warning |
-| `RENTAL_OVERDUE` | Rental is overdue | Warning |
-
-### Logging Strategy
-
-- **Structured Logging**: Using Serilog with contextual data
-- **Performance Logging**: Operation timing and metrics
-- **Error Logging**: Detailed exception information with context
-- **Audit Logging**: Business operations tracking
+Methods: `ValidateBookingWindow`, late fee and damage surcharge calculators.
 
 ---
 
-## Testing Strategy
+### PayUPaymentProvider (IPaymentProvider)
 
-### Unit Tests
+| Method | PayU operation |
+|--------|----------------|
+| `InitiateBlikPayment` | BLIK code charge |
+| `PreauthorizePayment` | Hold funds |
+| `CapturePreauthorization` | Capture on return |
+| `RefundPayment` | Full/partial refund |
+| `CheckPaymentStatus` | Poll order status |
 
-- **EquipmentMathService**: Algorithm validation with test cases
-- **BookingService**: Business rule verification
-- **PaymentService**: Payment workflow testing
-- **AnalyticsService**: Calculation accuracy verification
+Uses OAuth2 client credentials, REST JSON, `PayUOptions` (`PosId`, `SignatureKey`, `ClientId`, `ClientSecret`, `BaseUrl`, `NotifyUrl`).
 
-### Integration Tests
-
-- **Repository Implementations**: Database operations
-- **Payment Providers**: External service integration
-- **Service Orchestration**: End-to-end workflows
-
-### Test Data Management
-
-```csharp
-public class TestDataBuilder
-{
-    public static Equipment CreateTestEquipment(
-        EquipmentCategory category = EquipmentCategory.Skis)
-    {
-        return new Equipment
-        {
-            SerialNumber = $"TEST-{Guid.NewGuid()}",
-            Brand = "TestBrand",
-            Model = "TestModel",
-            Category = category,
-            Size = 180m,
-            DailyRate = 50m,
-            Status = EquipmentStatus.Available
-        };
-    }
-}
-```
+Returns `PaymentResult` record (success/failure, external id, raw response).
 
 ---
 
-## Performance Considerations
+### UserService
 
-### Database Optimization
-
-- **Query Optimization**: Proper indexing and query plans
-- **Connection Management**: Efficient connection pooling
-- **Caching Strategy**: Redis for frequently accessed data
-- **Batch Operations**: Bulk updates for status changes
-
-### Service Performance
-
-- **Async Operations**: All I/O operations are asynchronous
-- **Cancellation Tokens**: Proper cancellation support
-- **Memory Management**: Efficient object lifecycle management
-- **Parallel Processing**: Concurrent operations where safe
+- Password hashing: **BCrypt** work factor 12
+- Registration, password change
+- Lockout after failed attempts (coordinates with `AppUser.FailedLoginAttempts`, `LockoutEnd`)
+- Used by `AuthenticationService` in App via `IServiceScopeFactory` (singleton auth accessing scoped DbContext)
 
 ---
 
-## Security Considerations
+### AnalyticsService & AnalyticsExportService
 
-### Data Protection
-
-- **PII Encryption**: Sensitive customer data encryption
-- **Payment Security**: PCI compliance for payment data
-- **Access Control**: Role-based data access
-- **Audit Trail**: Complete operation logging
-
-### Input Validation
-
-- **Parameter Validation**: Comprehensive input checking
-- **SQL Injection Prevention**: Parameterized queries
-- **XSS Protection**: Output encoding in web contexts
-- **Rate Limiting**: API endpoint protection
+- **Utilization:** rented hours / season hours per equipment → `UtilizationReport`
+- Fleet KPIs, revenue aggregates
+- Export helpers for owner dashboard (CSV-oriented helpers in export service)
 
 ---
 
-## External Dependencies
+### NotificationService & NotificationInboxService
 
-### NuGet Packages
+| Service | Channel | Behavior |
+|---------|---------|----------|
+| `NotificationService` | SMTP (MailKit), Twilio SMS | Fail-soft; logs errors |
+| `NotificationInboxService` | Database `AppNotifications` | Persist, mark read, list for user |
 
-```xml
-<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
-<PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
-<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
-<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0" />
-<PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
-<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
-<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
-<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
-```
-
-### External Services
-
-- **PayU API**: Payment processing
-- **OpenWeatherMap**: Weather data (via app layer)
-- **Email Service**: Notifications (future enhancement)
+Triggered on booking events, worker overrides, etc.
 
 ---
 
-## Future Enhancements
+## Configuration
 
-### Planned Features
+### SkiRentalOptions (`Options/SkiRentalOptions.cs`)
 
-1. **Event Sourcing**: Domain events for audit trails
-2. **CQRS Pattern**: Separate read/write models
-3. **Message Queue**: Asynchronous processing
-4. **Machine Learning**: Predictive analytics
-5. **Multi-tenancy**: Support for multiple rental locations
+Section name: `"SkiRental"` — see [SkiRental.App.md](SkiRental.App.md) for full `appsettings.json` example.
 
-### Scalability Improvements
+### PayUOptions
 
-1. **Microservices**: Service decomposition
-2. **Database Sharding**: Horizontal scaling
-3. **Load Balancing**: Service distribution
-4. **Caching Layer**: Redis implementation
-5. **API Gateway**: External API management
+Section: `"PayU"` — registered in App/Api hosts, not inside `AddSkiRentalServices`.
 
 ---
 
-## Version History
+## NuGet dependencies
 
-- **v1.0**: Initial service implementation
-- **v1.1**: Added payment processing
-- **v1.2**: Enhanced analytics capabilities
-- **v1.3**: Performance optimizations
-- **v1.4**: Security enhancements
-- **v2.0**: Architecture improvements (planned)
+| Package | Role |
+|---------|------|
+| `Microsoft.EntityFrameworkCore.*` | Sqlite, SqlServer, InMemory, Design |
+| `Microsoft.Extensions.Configuration` | Options binding |
+| `Microsoft.Extensions.DependencyInjection.Abstractions` | DI |
+| `Microsoft.Extensions.Logging.Abstractions` | Logging |
+| `BCrypt.Net-Next` | Password hashing |
+| `MailKit`, `MimeKit` | Email |
+| `Twilio` | SMS |
+
+---
+
+## Error handling philosophy
+
+- Services return **result records** (`BookingResult.Failure(message)`) for expected business failures
+- Unexpected exceptions logged; transaction rollback on booking conflicts
+- Payment provider returns `PaymentResult.Failure` with error codes/messages
+
+---
+
+## Testing
+
+See [SkiRental.Tests.md](SkiRental.Tests.md). Logic is tested without MAUI:
+
+- `EquipmentMathServiceTests` — formulas
+- `RentalRulesServiceTests` — window and fees
+
+Gaps: `BookingService`, PayU integration, repository integration tests.
+
+---
+
+## Extension points
+
+| Abstraction | Swap implementation |
+|-------------|---------------------|
+| `IPaymentProvider` | Stripe, mock for tests |
+| `INotificationService` | Push notifications |
+| `IRecommendationOrchestrator` | ML-based recommender |
+
+Keep domain rules in services; do not leak EF types into Domain.
+
+---
+
+## See also
+
+- [SkiRental.Domain.md](SkiRental.Domain.md)
+- [Database-Schema.md](Database-Schema.md)
+- [API-Documentation.md](API-Documentation.md) — full interface listing
+- [Architecture.md](Architecture.md)
