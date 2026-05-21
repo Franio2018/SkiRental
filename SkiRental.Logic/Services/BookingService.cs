@@ -142,6 +142,7 @@ public sealed class BookingService
                 {
                     _logger.LogWarning("BLIK payment failed: {Error}", payResult.ErrorMessage);
                     await tx.RollbackAsync(ct);
+                    await RevertReservedEquipmentAsync(request.EquipmentIds, ct);
                     return BookingResult.Failure(
                         $"Płatność BLIK nie powiodła się: {payResult.ErrorMessage}",
                         rental.Id, qrCode);
@@ -163,6 +164,7 @@ public sealed class BookingService
                 else
                 {
                     await tx.RollbackAsync(ct);
+                    await RevertReservedEquipmentAsync(request.EquipmentIds, ct);
                     return BookingResult.Failure(
                         $"Preautoryzacja karty nie powiodła się: {preAuth.ErrorMessage}",
                         rental.Id, qrCode);
@@ -352,6 +354,9 @@ public sealed class BookingService
             }
         }
 
+        foreach (var re in rental.RentalEquipments)
+            await _equipmentRepo.UpdateStatusAsync(re.EquipmentId, EquipmentStatus.Available, ct);
+
         rental.Status = RentalStatus.Cancelled;
         await _rentalRepo.UpdateAsync(rental, ct);
 
@@ -362,6 +367,14 @@ public sealed class BookingService
     // ═══════════════════════════════════════════════════════════════════════
     // Helpers
     // ═══════════════════════════════════════════════════════════════════════
+
+    private async Task RevertReservedEquipmentAsync(
+        IEnumerable<int> equipmentIds,
+        CancellationToken ct)
+    {
+        foreach (var equipmentId in equipmentIds)
+            await _equipmentRepo.UpdateStatusAsync(equipmentId, EquipmentStatus.Available, ct);
+    }
 
     private async Task<decimal> CalculateTotalAmountAsync(CreateBookingRequest r, CancellationToken ct)
     {
