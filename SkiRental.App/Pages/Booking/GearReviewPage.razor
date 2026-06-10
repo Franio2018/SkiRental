@@ -3,6 +3,7 @@
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
 @using SkiRental.Logic.Services
+@using SkiRental.Logic
 @using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
@@ -15,40 +16,38 @@
 @inject BookingStateService BookingState
 @inject ToastService Toasts
 
-<PageTitle>Review Your Gear - SkiRental</PageTitle>
+<PageTitle>Przegląd sprzętu | SkiRental</PageTitle>
 
 <div class="gear-review-page">
     @if (_recommendation == null)
     {
         <div class="loading-state">
             <div class="spinner"></div>
-            <p>Loading your gear selection...</p>
+            <p>Ładowanie wyboru sprzętu…</p>
         </div>
     }
     else
     {
         <div class="review-header">
-            <h2>Your Recommended Gear</h2>
-            <p class="subtitle">Review your selection and make changes if needed</p>
+            <h2>Twój pakiet: narty, kijki i buty</h2>
+            <p class="subtitle">Sprawdź dopasowanie i w razie potrzeby zamień elementy przed płatnością</p>
 
-            @if (!string.IsNullOrEmpty(_debugMessage))
-            {
-                <div class="warning-banner" style="background: #e0f2fe; border-color: #0ea5e9;">
-                    <span class="warning-icon">🔧</span>
-                    <div>
-                        <strong>Debug:</strong>
-                        <p>@_debugMessage</p>
-                    </div>
+            <div class="package-ok-banner">
+                <span>✓</span>
+                <div>
+                    <strong>Kompletny pakiet (@RecommendationUserMessages.FormatRequiredPackage())</strong>
+                    <p>Wszystkie wymagane elementy zostały dobrane w bezpiecznym zakresie.</p>
                 </div>
-            }
+            </div>
 
             @if (_recommendation.Status == RecommendationStatus.Partial)
             {
+                var partialMsg = RecommendationUserMessages.GetPartialPackageWarning(_recommendation);
                 <div class="warning-banner">
                     <span class="warning-icon">⚠️</span>
                     <div>
-                        <strong>Some items are outside ideal range</strong>
-                        <p>We've found the closest available options within safety tolerance.</p>
+                        <strong>Część sprzętu poza idealnym rozmiarem</strong>
+                        <p>@partialMsg</p>
                     </div>
                 </div>
             }
@@ -130,12 +129,17 @@
             </div>
         </div>
 
+        <div class="spot-payment-hint">
+            <span>💵</span>
+            <p>@RecommendationUserMessages.SpotPaymentHint</p>
+        </div>
+
         <div class="navigation-actions">
             <button class="btn-secondary" @onclick="GoBack">
-                ← Back to Profile
+                ← Wróć
             </button>
             <button class="btn-primary proceed-btn" @onclick="ProceedToPayment" disabled="@_isProcessing">
-                @(_isProcessing ? "Processing..." : "Proceed to Payment →")
+                @(_isProcessing ? "Przetwarzanie…" : "Dalej – wybór płatności →")
             </button>
         </div>
     }
@@ -205,8 +209,6 @@
     private bool _isLoadingSwaps;
     private bool _isProcessing;
     private int _customerProfileId;
-    private string? _debugMessage;
-
     protected override async Task OnInitializedAsync()
     {
         // Guard – niezalogowany
@@ -237,15 +239,19 @@
             return;
         }
 
-        try
+        if (_recommendation.Status == RecommendationStatus.NoMatch
+            || !HasFullPackage(_recommendation))
         {
-            _currentSelection = new Dictionary<EquipmentCategory, Equipment>(_recommendation!.Selection);
+            BookingState.SetNoMatchState(_recommendation);
+            Navigation.NavigateTo("/no-match");
+            return;
         }
-        catch
-        {
-            Navigation.NavigateTo("/booking");
-        }
+
+        _currentSelection = new Dictionary<EquipmentCategory, Equipment>(_recommendation.Selection);
     }
+
+    private static bool HasFullPackage(RecommendationResult result) =>
+        RecommendationUserMessages.RequiredPackage.All(cat => result.Selection.ContainsKey(cat));
 
     private async Task OpenSwapDrawer(EquipmentCategory category)
     {
@@ -293,24 +299,29 @@
 
     private async Task ProceedToPayment()
     {
-        _debugMessage = "ProceedToPayment button was clicked!";
-        StateHasChanged();
-
-        await Task.Delay(1000); // Show message for 1 second
-
         if (_recommendation == null || _recommendation.Parameters == null) return;
+
+        if (!HasFullPackage(_recommendation))
+        {
+            BookingState.SetNoMatchState(_recommendation);
+            Navigation.NavigateTo("/no-match");
+            return;
+        }
 
         _isProcessing = true;
 
         try
         {
+            var (start, end) = BookingState.GetRentalWindowOrDefault();
+            var days = (decimal)RentalWindowHelper.CountRentalDays(start, end);
+
             var gearSelection = new GearSelection
             {
                 CustomerProfileId = _customerProfileId,
                 EquipmentIds = _currentSelection.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Id),
-                StartTime = DateTime.Now.AddHours(1),
-                EndTime = DateTime.Now.AddDays(1),
-                TotalAmount = _currentSelection.Values.Sum(e => e.DailyRate),
+                StartTime = start,
+                EndTime = end,
+                TotalAmount = Math.Round(_currentSelection.Values.Sum(e => e.DailyRate) * days, 2),
                 Recommendation = _recommendation
             };
 
@@ -323,27 +334,14 @@
         }
     }
 
-    private void GoBack()
-    {
-        _debugMessage = "GoBack button was clicked!";
-        StateHasChanged();
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(1000);
-            _debugMessage = null;
-            StateHasChanged();
-        });
-
-        Navigation.NavigateTo("/booking");
-    }
+    private void GoBack() => Navigation.NavigateTo("/booking");
 
     private static string GetMatchStatusText(MatchStatus? status) => status switch
     {
-        MatchStatus.ExactMatch => "Perfect Fit",
-        MatchStatus.FallbackMatch => "Close Match",
-        MatchStatus.NoMatch => "No Match",
-        _ => "Unknown"
+        MatchStatus.ExactMatch => "Idealne dopasowanie",
+        MatchStatus.FallbackMatch => "Dopasowanie zastępcze",
+        MatchStatus.NoMatch => "Brak dopasowania",
+        _ => "—"
     };
 
     private static string GetUnit(EquipmentCategory category) => category switch

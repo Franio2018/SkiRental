@@ -1,18 +1,23 @@
 @* SkiRental.UI.Shared/Components/Booking/BookingWizard.razor *@
 @using SkiRental.Domain.Enums
 @using SkiRental.Domain.Models
+@using SkiRental.Logic
 @using SkiRental.Logic.Interfaces
 @using SkiRental.Logic.Services
+@using SkiRental.Logic.Options
+@using Microsoft.Extensions.Options
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
 @implements IDisposable
 
-@inject EquipmentMathService EquipmentMath
+@inject IRecommendationOrchestrator RecommendationOrchestrator
 @inject BookingService BookingService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IAuthenticationService AuthService
 @inject UserService UserService
+@inject IOptions<SkiRentalOptions> SkiOpts
+@inject RentalRulesService Rules
 
 <div class="booking-wizard">
 
@@ -144,74 +149,61 @@
             }
             else if (_recommendationError is not null)
             {
-                <div class="error-notice">❌ @_recommendationError</div>
+                <div class="error-notice no-match-notice">
+                    <h3>@_noMatchTitle</h3>
+                    <p>@_recommendationError</p>
+                    @if (_noMatchReasons.Any())
+                    {
+                        <ul class="no-match-list">
+                            @foreach (var r in _noMatchReasons)
+                            {
+                                <li><strong>@RecommendationUserMessages.CategoryNamePl(r.Category):</strong> @r.ConstraintDescription</li>
+                            }
+                        </ul>
+                    }
+                </div>
                 <div class="wizard-nav">
-                    <button class="btn-secondary" type="button" @onclick="() => CurrentStep = 1">← Wróć</button>
+                    <button class="btn-secondary" type="button" onclick="wizardBridge.goToStep1()">← Wróć do profilu</button>
                 </div>
             }
-            else if (_recommendation is not null)
+            else if (_orchestratorResult is not null)
             {
-                <div class="recommendation-card">
-                    <div class="rec-grid">
-                        <div class="rec-item">
-                            <span class="rec-label">Długość nart</span>
-                            <span class="rec-value">@_recommendation.RecommendedSkiLength cm</span>
-                        </div>
-                        <div class="rec-item">
-                            <span class="rec-label">Długość kijków</span>
-                            <span class="rec-value">@_recommendation.RecommendedPoleLength cm</span>
-                        </div>
-                        <div class="rec-item">
-                            <span class="rec-label">Sztywność Flex</span>
-                            <span class="rec-value">@_recommendation.RecommendedStiffness</span>
-                        </div>
-                        <div class="rec-item">
-                            <span class="rec-label">Rozmiar buta</span>
-                            <span class="rec-value">EU @_recommendation.RecommendedBootSize</span>
-                        </div>
-                    </div>
-                </div>
-
-                <h3>Dostępny sprzęt</h3>
-                @if (!_recommendation.MatchingEquipment.Any())
+                @if (!string.IsNullOrEmpty(_partialWarning))
                 {
-                    <div class="no-equipment-notice">
-                        ⚠️ Brak dostępnego sprzętu w tym rozmiarze.
+                    <div class="warning-banner">
+                        <span>⚠️</span>
+                        <p>@_partialWarning</p>
                     </div>
                 }
-                else
+
+                @if (!string.IsNullOrEmpty(_orchestratorResult.AlgorithmExplanation))
                 {
-                    @foreach (var group in _recommendation.MatchingEquipment.GroupBy(e => e.Category).OrderBy(g => g.Key))
-                    {
-                        <h4 class="equipment-group-title">@CategoryLabel(group.Key)</h4>
-                        <div class="equipment-list">
-                            @foreach (var eq in group)
-                            {
-                                var eqId = eq.Id;
-                                var isSelected = SelectedEquipmentIds.Contains(eqId);
-                                <button type="button"
-                                        class="equipment-card @(isSelected ? "selected" : "")"
-                                        onclick="wizardBridge.selectEquipment(@eqId)">
-                                    <div class="eq-header">
-                                        <span class="eq-category">@eq.Category</span>
-                                        @if (isSelected)
-                                        {
-                                            <span class="eq-selected-badge">✓ Wybrano</span>
-                                        }
-                                    </div>
-                                    <h4>@eq.Brand @eq.Model</h4>
-                                    <div class="eq-details">
-                                        <span>@eq.Size @SizeUnit(eq.Category)</span>
-                                        @if (eq.Stiffness.HasValue)
-                                        {
-                                            <span>Flex @eq.Stiffness</span>
-                                        }
-                                        <span>@eq.DailyRate PLN/doba</span>
-                                    </div>
-                                </button>
-                            }
+                    <pre class="algorithm-snippet">@_orchestratorResult.AlgorithmExplanation</pre>
+                }
+
+                <h3>Twój pakiet (@RecommendationUserMessages.FormatRequiredPackage())</h3>
+                @foreach (var cat in RentalEquipmentCategories.All)
+                {
+                    if (!_orchestratorResult.Selection.TryGetValue(cat, out var eq)) continue;
+                    var eqId = eq.Id;
+                    var matchStatus = _orchestratorResult.MatchStatus.GetValueOrDefault(cat);
+                    var fallback = _orchestratorResult.FallbackNotes.GetValueOrDefault(cat);
+                    <div class="equipment-card selected">
+                        <div class="eq-header">
+                            <span class="eq-category">@CategoryLabel(cat)</span>
+                            <span class="match-pill @matchStatus.ToString().ToLower()">@MatchLabel(matchStatus)</span>
                         </div>
-                    }
+                        <h4>@eq.Brand @eq.Model</h4>
+                        <div class="eq-details">
+                            <span>@eq.Size @SizeUnit(cat)</span>
+                            @if (eq.Stiffness.HasValue) { <span>Flex @eq.Stiffness</span> }
+                            <span>@eq.DailyRate PLN/doba</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(fallback))
+                        {
+                            <p class="fallback-hint">@fallback</p>
+                        }
+                    </div>
                 }
 
                 <div class="wizard-nav">
@@ -219,7 +211,7 @@
                     <button class="btn-primary"
                             type="button"
                             onclick="wizardBridge.goToStep3()"
-                            disabled="@(!SelectedEquipmentIds.Any())">
+                            disabled="@(!HasFullPackage)">
                         Dalej – Płatność →
                     </button>
                 </div>
@@ -231,44 +223,71 @@
     @if (CurrentStep == 3)
     {
         <div class="wizard-step step-payment">
-            <h2>💳 Termin i płatność BLIK</h2>
+            <h2>💳 Termin i płatność</h2>
+            <p class="step-description">@RecommendationUserMessages.SpotPaymentHint</p>
 
             <div class="form-grid">
                 <div class="form-group">
-                    <label>Od kiedy</label>
-                    <input type="datetime-local" @bind="StartTime" class="form-input" />
+                    <label>Data rozpoczęcia</label>
+                    <input type="date" class="form-input" @bind="_startDate" min="@_minDate" max="@_maxDate" />
                 </div>
                 <div class="form-group">
-                    <label>Do kiedy</label>
-                    <input type="datetime-local" @bind="EndTime" class="form-input" />
+                    <label>Data zakończenia</label>
+                    <input type="date" class="form-input" @bind="_endDate" min="@_minDate" max="@_maxDate" />
                 </div>
             </div>
+            <p class="rental-season-hint">
+                Sezon wypożyczeń: @SeasonStartText – @SeasonEndText (max @SkiOpts.Value.MaxRentalDaysPerBooking dni).
+            </p>
 
             <div class="price-summary">
                 <h3>Podsumowanie</h3>
                 <div class="price-lines">
-                    @foreach (var id in SelectedEquipmentIds)
+                    @if (_orchestratorResult is not null)
                     {
-                        var eq = _recommendation?.MatchingEquipment.FirstOrDefault(e => e.Id == id);
-                        if (eq is not null)
+                        @foreach (var kvp in _orchestratorResult.Selection)
                         {
+                            var eq = kvp.Value;
                             <div class="price-line">
-                                <span>@eq.Brand @eq.Model (@eq.Size cm)</span>
+                                <span>@eq.Brand @eq.Model (@eq.Size @SizeUnit(kvp.Key))</span>
                                 <span>@eq.DailyRate PLN/d</span>
                             </div>
                         }
                     }
                     <div class="price-total">
-                        <strong>Łącznie</strong>
+                        <strong>Łącznie (szacunek)</strong>
                         <strong>@EstimatedTotal PLN</strong>
                     </div>
                 </div>
             </div>
 
-            <div class="blik-section">
-                <label>Kod BLIK (6 cyfr)</label>
-                <input type="text" @bind="BlikCode" maxlength="6" class="blik-input" placeholder="------" />
+            <h3>Sposób płatności</h3>
+            <div class="payment-method-row">
+                <button type="button"
+                        class="method-chip @(_paymentMethod == PaymentMethod.Spot ? "active" : "")"
+                        onclick="wizardBridge.setPaymentMethod(0)">
+                    💵 W lokalu (na miejscu)
+                </button>
+                <button type="button"
+                        class="method-chip @(_paymentMethod == PaymentMethod.Online ? "active" : "")"
+                        onclick="wizardBridge.setPaymentMethod(1)">
+                    💳 Online (BLIK)
+                </button>
             </div>
+
+            @if (_paymentMethod == PaymentMethod.Online)
+            {
+                <div class="blik-section">
+                    <label>Kod BLIK (6 cyfr)</label>
+                    <input type="text" @bind="BlikCode" maxlength="6" class="blik-input" placeholder="------" />
+                </div>
+            }
+            else
+            {
+                <div class="spot-info-box">
+                    Płatność przy odbiorze w wypożyczalni. Rezerwacja zostanie zapisana bez obciążenia konta online.
+                </div>
+            }
 
             @if (_bookingError is not null)
             {
@@ -276,12 +295,12 @@
             }
 
             <div class="wizard-nav">
-                <button class="btn-secondary" type="button" @onclick="() => CurrentStep = 2">← Wróć</button>
+                <button class="btn-secondary" type="button" onclick="wizardBridge.backToStep2()">← Wróć</button>
                 <button class="btn-primary btn-pay"
                         type="button"
-                        @onclick="ConfirmBookingAsync"
-                        disabled="@(_isProcessing || string.IsNullOrWhiteSpace(BlikCode))">
-                    @(_isProcessing ? "Przetwarzam…" : $"Zapłać {EstimatedTotal} PLN BLIK")
+                        onclick="wizardBridge.confirmBooking()"
+                        disabled="@(_isProcessing || !CanConfirmPayment)">
+                    @GetConfirmButtonText()
                 </button>
             </div>
         </div>
@@ -293,12 +312,12 @@
         <div class="wizard-step step-success text-center">
             <div class="success-icon" style="font-size: 3rem;">🎉</div>
             <h2>Rezerwacja potwierdzona!</h2>
-            <p>Twój kod QR do odbioru sprzętu:</p>
+            <p>Twój kod QR do odbioru sprzętu@( _paymentMethod == PaymentMethod.Spot ? " — płatność w lokalu przy odbiorze" : ""):</p>
             <div class="qr-placeholder" style="border: 2px dashed #ccc; padding: 2rem; margin: 1rem 0;">
                 <div class="qr-code-display" style="font-weight: bold; font-size: 1.5rem;">@_bookingResult.QrCode</div>
                 <p class="qr-hint">Pokaż ten kod pracownikowi przy odbiorze.</p>
             </div>
-            <button class="btn-primary" type="button" @onclick='() => Navigation.NavigateTo("/")'>
+            <button class="btn-primary" type="button" onclick="wizardBridge.goHome()">
                 Wróć do strony głównej
             </button>
         </div>
@@ -306,6 +325,9 @@
 </div>
 
 @code {
+    [Parameter] public DateTime? RentalStart { get; set; }
+    [Parameter] public DateTime? RentalEnd { get; set; }
+
     // ── Authentication ───────────────────────────────────────────────────────
     private int _customerProfileId;
     private bool _profileLoaded;
@@ -350,6 +372,8 @@
             ShoeSize = profile.ShoeSize;
             SelectedStyle = profile.PreferredStyle;
             SelectedSkill = profile.SkillLevel;
+
+            ApplyRentalDates(RentalStart, RentalEnd);
         }
         catch (Exception ex)
         {
@@ -401,21 +425,77 @@
     };
 
     // ── Krok 2 Data ─────────────────────────────────────────────────────────
-    private EquipmentRecommendation? _recommendation;
+    private RecommendationResult? _orchestratorResult;
     private bool _isCalculating;
     private string? _recommendationError;
-    private readonly HashSet<int> SelectedEquipmentIds = new();
+    private string _noMatchTitle = "";
+    private List<NoMatchReason> _noMatchReasons = [];
+    private string? _partialWarning;
 
     // ── Krok 3 Data ─────────────────────────────────────────────────────────
-    private DateTime StartTime = DateTime.Now.AddHours(1);
-    private DateTime EndTime = DateTime.Now.AddDays(1);
+    private DateTime _startDate = DateTime.Today;
+    private DateTime _endDate = DateTime.Today.AddDays(RentalWindowHelper.DefaultSpanDays);
+    private string _minDate = "";
+    private string _maxDate = "";
+    private string SeasonStartText => SkiOpts.Value.SeasonStart.ToString("dd.MM.yyyy");
+    private string SeasonEndText => SkiOpts.Value.SeasonEnd.ToString("dd.MM.yyyy");
+    private PaymentMethod _paymentMethod = PaymentMethod.Spot;
     private string BlikCode = string.Empty;
     private bool _isProcessing;
     private string? _bookingError;
 
-    private decimal EstimatedTotal => _recommendation?.MatchingEquipment
-        .Where(e => SelectedEquipmentIds.Contains(e.Id))
-        .Sum(e => e.DailyRate * (decimal)Math.Max(1, (EndTime - StartTime).TotalDays)) ?? 0;
+    private bool HasFullPackage =>
+        _orchestratorResult is not null
+        && RecommendationUserMessages.RequiredPackage.All(c => _orchestratorResult.Selection.ContainsKey(c));
+
+    private bool CanConfirmPayment =>
+        _paymentMethod == PaymentMethod.Spot
+        || (_paymentMethod == PaymentMethod.Online && BlikCode.Length == 6 && BlikCode.All(char.IsDigit));
+
+    private decimal EstimatedTotal
+    {
+        get
+        {
+            if (_orchestratorResult is null) return 0;
+            var (start, end) = GetBookingWindow();
+            var days = (decimal)RentalWindowHelper.CountRentalDays(start, end);
+            return Math.Round(_orchestratorResult.Selection.Values.Sum(e => e.DailyRate) * days, 2);
+        }
+    }
+
+    private void ApplyRentalDates(DateTime? start, DateTime? end)
+    {
+        _minDate = SkiOpts.Value.SeasonStart.ToString("yyyy-MM-dd");
+        _maxDate = SkiOpts.Value.SeasonEnd.ToString("yyyy-MM-dd");
+
+        if (start.HasValue && end.HasValue)
+        {
+            _startDate = start.Value.Date;
+            _endDate = end.Value.Date;
+        }
+        else
+        {
+            (_startDate, _endDate) = RentalWindowHelper.GetDefaultDates(SkiOpts.Value);
+        }
+
+        NormalizeEndDate();
+    }
+
+    private void NormalizeEndDate()
+    {
+        if (_endDate <= _startDate)
+            _endDate = _startDate.AddDays(1);
+
+        var maxByPolicy = _startDate.AddDays(SkiOpts.Value.MaxRentalDaysPerBooking);
+        if (_endDate > maxByPolicy)
+            _endDate = maxByPolicy;
+
+        if (_endDate > SkiOpts.Value.SeasonEnd.Date)
+            _endDate = SkiOpts.Value.SeasonEnd.Date;
+    }
+
+    private (DateTime Start, DateTime End) GetBookingWindow()
+        => RentalWindowHelper.ToBookingWindow(_startDate, _endDate);
 
     // ── Krok 4 Data ─────────────────────────────────────────────────────────
     private BookingResult? _bookingResult;
@@ -440,8 +520,10 @@
 
         CurrentStep = 2;
         _isCalculating = true;
-        _recommendation = null;
+        _orchestratorResult = null;
         _recommendationError = null;
+        _noMatchReasons = [];
+        _partialWarning = null;
         StateHasChanged();
 
         try
@@ -455,53 +537,34 @@
                 SkillLevel = SelectedSkill
             };
 
-            _recommendation = await EquipmentMath.RecommendAsync(parameters);
+            var result = await RecommendationOrchestrator.RecommendAsync(parameters);
+
+            if (result.Status == RecommendationStatus.NoMatch)
+            {
+                _noMatchReasons = result.NoMatchReasons;
+                _noMatchTitle = RecommendationUserMessages.GetNoMatchTitle(_noMatchReasons);
+                _recommendationError = RecommendationUserMessages.GetNoMatchLead(_noMatchReasons);
+            }
+            else
+            {
+                _orchestratorResult = result;
+                _partialWarning = RecommendationUserMessages.GetPartialPackageWarning(result);
+                if (string.IsNullOrEmpty(_partialWarning))
+                    _partialWarning = null;
+            }
         }
         catch (Exception ex)
         {
-            _recommendationError = $"Nie udało się pobrać rekomendacji: {ex.Message}";
+            _recommendationError = $"Nie udało się dobrać sprzętu: {ex.Message}";
         }
         finally
         {
             _isCalculating = false;
-            AutoSelectRecommendedEquipment();
             StateHasChanged();
         }
     }
 
     private void GoToStep3() => CurrentStep = 3;
-
-    private void AutoSelectRecommendedEquipment()
-    {
-        SelectedEquipmentIds.Clear();
-        if (_recommendation is null) return;
-
-        foreach (var group in _recommendation.MatchingEquipment.GroupBy(e => e.Category))
-            SelectedEquipmentIds.Add(group.First().Id);
-    }
-
-    private void SelectEquipment(Equipment eq)
-    {
-        var sameCategoryIds = _recommendation!.MatchingEquipment
-            .Where(e => e.Category == eq.Category)
-            .Select(e => e.Id)
-            .ToHashSet();
-
-        foreach (var id in sameCategoryIds)
-            SelectedEquipmentIds.Remove(id);
-
-        SelectedEquipmentIds.Add(eq.Id);
-        StateHasChanged();
-    }
-
-    [JSInvokable]
-    public Task JsSelectEquipment(int equipmentId)
-    {
-        var eq = _recommendation?.MatchingEquipment.FirstOrDefault(e => e.Id == equipmentId);
-        if (eq is not null)
-            SelectEquipment(eq);
-        return Task.CompletedTask;
-    }
 
     [JSInvokable]
     public Task JsGoToStep1()
@@ -511,11 +574,47 @@
     }
 
     [JSInvokable]
+    public Task JsBackToStep2()
+    {
+        CurrentStep = 2;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
     public Task JsGoToStep3()
     {
+        if (!HasFullPackage)
+        {
+            return InvokeAsync(async () =>
+            {
+                var msg = _noMatchReasons.Count > 0
+                    ? RecommendationUserMessages.GetNoMatchLead(_noMatchReasons)
+                    : "Najpierw dobierz pełny pakiet: narty, kijki i buty.";
+                await JS.InvokeVoidAsync("showPopup", "Brak pełnego pakietu", msg);
+                StateHasChanged();
+            });
+        }
         GoToStep3();
         return InvokeAsync(StateHasChanged);
     }
+
+    [JSInvokable]
+    public async Task JsSetPaymentMethod(int method)
+    {
+        _paymentMethod = (PaymentMethod)method;
+        _bookingError = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task JsConfirmBooking() => InvokeAsync(ConfirmBookingAsync);
+
+    [JSInvokable]
+    public Task JsGoHome() => InvokeAsync(() =>
+    {
+        Navigation.NavigateTo("/");
+        return Task.CompletedTask;
+    });
 
     private static string CategoryLabel(EquipmentCategory c) => c switch
     {
@@ -531,8 +630,40 @@
         _ => "cm"
     };
 
+    private string GetConfirmButtonText()
+    {
+        if (_isProcessing) return "Przetwarzam…";
+        return _paymentMethod == PaymentMethod.Spot
+            ? $"Potwierdź rezerwację • {EstimatedTotal:F2} PLN (płatność w lokalu)"
+            : $"Zapłać {EstimatedTotal:F2} PLN BLIK";
+    }
+
+    private static string MatchLabel(MatchStatus status) => status switch
+    {
+        MatchStatus.ExactMatch => "Idealne",
+        MatchStatus.FallbackMatch => "Zastępcze",
+        _ => "—"
+    };
+
     private async Task ConfirmBookingAsync()
     {
+        if (_orchestratorResult is null || !HasFullPackage)
+        {
+            _bookingError = "Nie można potwierdzić rezerwacji — brakuje nart, kijków lub butów w magazynie.";
+            StateHasChanged();
+            return;
+        }
+
+        NormalizeEndDate();
+        var (startTime, endTime) = GetBookingWindow();
+        var windowCheck = Rules.ValidateBookingWindow(startTime, endTime);
+        if (!windowCheck.IsValid)
+        {
+            _bookingError = windowCheck.Error;
+            StateHasChanged();
+            return;
+        }
+
         _isProcessing = true;
         _bookingError = null;
         StateHasChanged();
@@ -540,10 +671,10 @@
         var request = new CreateBookingRequest
         {
             CustomerProfileId = _customerProfileId,
-            EquipmentIds = SelectedEquipmentIds.ToList(),
-            StartTime = StartTime,
-            EndTime = EndTime,
-            BlikCode = BlikCode
+            EquipmentIds = _orchestratorResult.Selection.Values.Select(e => e.Id).ToList(),
+            StartTime = startTime,
+            EndTime = endTime,
+            BlikCode = _paymentMethod == PaymentMethod.Online ? BlikCode : null,
         };
 
         _bookingResult = await BookingService.CreateBookingAsync(request);

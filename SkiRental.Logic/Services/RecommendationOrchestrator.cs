@@ -21,8 +21,6 @@ public sealed class RecommendationOrchestrator : IRecommendationOrchestrator
         [EquipmentCategory.Skis] = (5m, 10m),   // Ideal ±5cm, Max ±10cm
         [EquipmentCategory.Poles] = (0m, 5m),    // No ideal band, Max ±5cm
         [EquipmentCategory.Boots] = (0m, 1m),    // Exact match only, Max ±1EU
-        [EquipmentCategory.Gloves] = (0m, 0m),   // Exact S/M/L match
-        [EquipmentCategory.Helmet] = (0m, 0m)    // Exact S/M/L match
     };
 
     public RecommendationOrchestrator(

@@ -2,73 +2,68 @@
 @using SkiRental.Domain.Models
 @using SkiRental.Domain.Enums
 @using SkiRental.App.Services
-@using Microsoft.AspNetCore.Components
+@using SkiRental.Logic
+@using Microsoft.Extensions.Options
+@using SkiRental.Logic.Options
 
 @inject NavigationManager Navigation
 @inject BookingStateService BookingState
+@inject IOptions<SkiRentalOptions> SkiOpts
+@inject IJSRuntime JS
+@implements IDisposable
 
-<PageTitle>No Gear Available - SkiRental</PageTitle>
+<PageTitle>Brak dopasowania sprzętu | SkiRental</PageTitle>
 
 <div class="no-match-page">
     <div class="no-match-container">
         <div class="error-header">
-            <div class="error-icon">⚠️</div>
-            <h1>No Safe Match Available</h1>
-            <p class="subtitle">We couldn't find equipment that fits your safety requirements</p>
+            <div class="error-icon">@( _skisMissing ? "🎿" : "⚠️")</div>
+            <h1>@_title</h1>
+            <p class="subtitle">@_lead</p>
+            @if (_skisMissing)
+            {
+                <div class="alert-box alert-box--skis">
+                    <strong>Co to oznacza?</strong>
+                    <p>
+                        Narty są podstawą pakietu. Skontaktuj się z ladą wypożyczalni —
+                        pracownik może zaproponować inny rozmiar z magazynu lub rezerwację
+                        na inny termin, gdy sprzęt wróci od innych klientów.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="alert-box">
+                    <strong>Pełny pakiet to:</strong>
+                    <p>@RecommendationUserMessages.FormatRequiredPackage()</p>
+                    <p>Bez wszystkich trzech elementów nie możemy dokończyć rezerwacji w aplikacji.</p>
+                </div>
+            }
         </div>
 
         @if (_noMatchReasons.Any())
         {
             <div class="reasons-section">
-                <h2>What's unavailable:</h2>
+                <h2>Szczegóły braków:</h2>
                 <div class="reason-cards">
                     @foreach (var reason in _noMatchReasons)
                     {
-                        <div class="reason-card">
+                        <div class="reason-card @(reason.Category == EquipmentCategory.Skis ? "reason-card--skis" : "")">
                             <div class="reason-header">
                                 <span class="category-icon">@GetCategoryIcon(reason.Category)</span>
-                                <h3>@reason.Category</h3>
+                                <h3>@RecommendationUserMessages.CategoryNamePl(reason.Category)</h3>
                             </div>
                             <div class="reason-details">
                                 <p class="constraint">@reason.ConstraintDescription</p>
                                 <div class="size-comparison">
                                     <div class="ideal-size">
-                                        <strong>Your ideal:</strong> @reason.IdealSize@(GetUnit(reason.Category))
+                                        <strong>Twój idealny rozmiar:</strong>
+                                        @reason.IdealSize@(GetUnit(reason.Category))
                                     </div>
                                     <div class="available-range">
-                                        <strong>Available:</strong> @reason.AvailableSizes
+                                        <strong>Dostępne w magazynie:</strong> @reason.AvailableSizes
                                     </div>
                                 </div>
-                                @if (!string.IsNullOrEmpty(reason.FitNotes))
-                                {
-                                    <div class="fit-notes">
-                                        <strong>Fit notes:</strong> @reason.FitNotes
-                                    </div>
-                                }
-                                @if (reason.AvailablePositions.Any())
-                                {
-                                    <div class="position-options">
-                                        <strong>Positions available:</strong>
-                                        <ul>
-                                            @foreach (var position in reason.AvailablePositions)
-                                            {
-                                                <li>@position</li>
-                                            }
-                                        </ul>
-                                    </div>
-                                }
-                                @if (reason.RecommendedSizes.Any())
-                                {
-                                    <div class="recommended-sizes">
-                                        <strong>Recommended sizes:</strong>
-                                        <ul>
-                                            @foreach (var size in reason.RecommendedSizes)
-                                            {
-                                                <li>@size</li>
-                                            }
-                                        </ul>
-                                    </div>
-                                }
                             </div>
                         </div>
                     }
@@ -77,27 +72,27 @@
         }
 
         <div class="help-section">
-            <h2>What you can do:</h2>
+            <h2>Co możesz zrobić:</h2>
             <div class="help-options">
                 <div class="help-option">
                     <div class="option-icon">📞</div>
                     <div>
-                        <h3>Contact the rental desk</h3>
-                        <p>Our staff may have additional options or can suggest alternatives</p>
+                        <h3>Skontaktuj się z ladą</h3>
+                        <p>Pracownik sprawdzi magazyn i zaproponuje alternatywy</p>
                     </div>
                 </div>
                 <div class="help-option">
                     <div class="option-icon">🔄</div>
                     <div>
-                        <h3>Adjust your profile</h3>
-                        <p>Try different measurements or skill level settings</p>
+                        <h3>Zaktualizuj profil</h3>
+                        <p>Sprawdź wzrost, wagę, rozmiar buta i styl jazdy</p>
                     </div>
                 </div>
                 <div class="help-option">
                     <div class="option-icon">📅</div>
                     <div>
-                        <h3>Check back later</h3>
-                        <p>Equipment becomes available as other rentals return</p>
+                        <h3>Spróbuj później</h3>
+                        <p>Sprzęt wraca na stan magazynu po zwrotach innych klientów</p>
                     </div>
                 </div>
             </div>
@@ -105,18 +100,18 @@
 
         <div class="action-section">
             <div class="contact-info">
-                <h3>Rental Desk Contact</h3>
-                <p><strong>Phone:</strong> +48 123 456 789</p>
-                <p><strong>Email:</strong> rental@skirental.app</p>
-                <p><strong>Hours:</strong> 8:00 - 18:00 daily</p>
+                <h3>Kontakt do wypożyczalni</h3>
+                <p><strong>Telefon:</strong> @SkiOpts.Value.SupportPhone</p>
+                <p><strong>E-mail:</strong> @SkiOpts.Value.SupportEmail</p>
+                <p><strong>Godziny:</strong> 8:00 – 18:00</p>
             </div>
 
             <div class="action-buttons">
-                <button class="btn-secondary" @onclick="GoBack">
-                    ← Back to Profile
+                <button type="button" class="btn-secondary" onclick="navBridge.go('/profile?returnUrl=/booking')">
+                    ← Popraw profil
                 </button>
-                <button class="btn-primary" @onclick="GoHome">
-                    🏠 Start Over
+                <button type="button" class="btn-primary" onclick="navBridge.go('/')">
+                    🏠 Strona główna
                 </button>
             </div>
         </div>
@@ -124,46 +119,59 @@
 </div>
 
 @code {
-    private List<NoMatchReason> _noMatchReasons = new();
+    private DotNetObjectReference<NoMatchPage>? _dotNetRef;
+    private List<NoMatchReason> _noMatchReasons = [];
+    private string _title = "";
+    private string _lead = "";
+    private bool _skisMissing;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("navBridgeInit", _dotNetRef);
+        }
+    }
+
+    public void Dispose() => _dotNetRef?.Dispose();
+
+    [JSInvokable]
+    public Task JsNavigate(string path) => InvokeAsync(() =>
+    {
+        Navigation.NavigateTo(path);
+        return Task.CompletedTask;
+    });
 
     protected override void OnInitialized()
     {
         var recommendationResult = BookingState.GetNoMatchState();
-        BookingState.ClearNoMatchState(); // Clear after reading
+        BookingState.ClearNoMatchState();
 
-        if (recommendationResult == null || recommendationResult.NoMatchReasons == null || !recommendationResult.NoMatchReasons.Any())
+        if (recommendationResult?.NoMatchReasons is not { Count: > 0 })
         {
             Navigation.NavigateTo("/booking");
             return;
         }
 
         _noMatchReasons = recommendationResult.NoMatchReasons.ToList();
-    }
-
-    private void GoBack()
-    {
-        Navigation.NavigateTo("/booking");
-    }
-
-    private void GoHome()
-    {
-        Navigation.NavigateTo("/");
+        _skisMissing = RecommendationUserMessages.HasSkisNoMatch(_noMatchReasons);
+        _title = RecommendationUserMessages.GetNoMatchTitle(_noMatchReasons);
+        _lead = RecommendationUserMessages.GetNoMatchLead(_noMatchReasons);
     }
 
     private static string GetCategoryIcon(EquipmentCategory category) => category switch
     {
         EquipmentCategory.Skis => "🎿",
-        EquipmentCategory.Poles => "🏂",
+        EquipmentCategory.Poles => "🦯",
         EquipmentCategory.Boots => "🥾",
-        EquipmentCategory.Gloves => "🧤",
-        EquipmentCategory.Helmet => "⛑️",
         _ => "📦"
     };
 
     private static string GetUnit(EquipmentCategory category) => category switch
     {
-        EquipmentCategory.Skis => "cm",
-        EquipmentCategory.Poles => "cm",
+        EquipmentCategory.Skis => " cm",
+        EquipmentCategory.Poles => " cm",
         EquipmentCategory.Boots => " EU",
         _ => ""
     };

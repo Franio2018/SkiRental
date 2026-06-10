@@ -46,8 +46,6 @@ public enum EquipmentCategory
     Skis = 0,
     Poles = 1,
     Boots = 2,
-    Gloves = 3,
-    Helmet = 4
 }
 
 /// <summary>

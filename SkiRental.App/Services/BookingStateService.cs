@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Options;
 using SkiRental.Domain.Enums;
 using SkiRental.Domain.Models;
+using SkiRental.Logic.Options;
+using SkiRental.Logic.Services;
 
 namespace SkiRental.App.Services;
 
@@ -10,6 +13,11 @@ namespace SkiRental.App.Services;
 /// </summary>
 public sealed class BookingStateService
 {
+    private readonly SkiRentalOptions _opts;
+
+    public BookingStateService(IOptions<SkiRentalOptions> options)
+        => _opts = options.Value;
+
     // ── BookingWizard → RecommendationLoading ─────────────────────────────────
     private EquipmentSelectionParameters? _selectionParameters;
 
@@ -21,6 +29,31 @@ public sealed class BookingStateService
 
     public void ClearSelectionParameters()
         => _selectionParameters = null;
+
+    // ── Termin wypożyczenia (kalendarz → kreator / gear-review) ───────────────
+    private DateTime? _rentalStart;
+    private DateTime? _rentalEnd;
+
+    public void SetRentalWindow(DateTime start, DateTime end)
+    {
+        _rentalStart = start;
+        _rentalEnd = end;
+    }
+
+    public (DateTime Start, DateTime End) GetRentalWindowOrDefault()
+    {
+        if (_rentalStart.HasValue && _rentalEnd.HasValue)
+            return (_rentalStart.Value, _rentalEnd.Value);
+
+        var (startDate, endDate) = RentalWindowHelper.GetDefaultDates(_opts);
+        return RentalWindowHelper.ToBookingWindow(startDate, endDate);
+    }
+
+    public void ClearRentalWindow()
+    {
+        _rentalStart = null;
+        _rentalEnd = null;
+    }
 
     // ── GearReview → Payment ─────────────────────────────────────────────────
     private GearSelection? _pendingGearSelection;

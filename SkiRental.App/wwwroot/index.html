@@ -34,12 +34,11 @@
         <span class="dismiss" onclick="this.parentNode.style.display='none'">✕</span>
     </div>
 
-    <!-- Blazor WebView script -->
-    <script src="_framework/blazor.webview.js" autostart="false"></script>
-
     <!--
     ═══════════════════════════════════════════════════════════════════════════════
     JS Bridge – komunikacja MAUI Native ↔ Blazor
+    (must be defined before blazor.webview.js; do NOT call Blazor.start() here —
+     MAUI BlazorWebView starts Blazor after injecting the native bridge)
     ═══════════════════════════════════════════════════════════════════════════════
     -->
     <script>
@@ -100,7 +99,11 @@
                 goToStep2: function() { this._ref.invokeMethodAsync('JsGoToStep2'); },
                 selectEquipment: function(id) { this._ref.invokeMethodAsync('JsSelectEquipment', id); },
                 goToStep1: function() { this._ref.invokeMethodAsync('JsGoToStep1'); },
-                goToStep3: function() { this._ref.invokeMethodAsync('JsGoToStep3'); }
+                backToStep2: function() { this._ref.invokeMethodAsync('JsBackToStep2'); },
+                goToStep3: function() { this._ref.invokeMethodAsync('JsGoToStep3'); },
+                setPaymentMethod: function(val) { this._ref.invokeMethodAsync('JsSetPaymentMethod', val); },
+                confirmBooking: function() { this._ref.invokeMethodAsync('JsConfirmBooking'); },
+                goHome: function() { this._ref.invokeMethodAsync('JsGoHome'); }
             };
         };
 
@@ -110,7 +113,25 @@
             goToStep2: function() {},
             selectEquipment: function() {},
             goToStep1: function() {},
-            goToStep3: function() {}
+            backToStep2: function() {},
+            goToStep3: function() {},
+            setPaymentMethod: function() {},
+            confirmBooking: function() {},
+            goHome: function() {}
+        };
+
+        // Generic navigation bridge for standalone pages (no-match, payment, etc.)
+        window.navBridgeInit = function(dotNetRef) {
+            window.navBridge = {
+                _ref: dotNetRef,
+                go: function(path) { this._ref.invokeMethodAsync('JsNavigate', path); },
+                click: function(method) { this._ref.invokeMethodAsync(method); }
+            };
+        };
+
+        window.navBridge = {
+            go: function() {},
+            click: function() {}
         };
 
         window.showPopup = function(title, message) {
@@ -144,22 +165,9 @@
                 URL.revokeObjectURL(url);
             }
         };
-
-        // Uruchom Blazor po załadowaniu bridge
-        Blazor.start().catch(function (error) {
-            console.error("Blazor start failed:", error);
-            // Show detailed error in the error UI
-            const errorUi = document.getElementById('blazor-error-ui');
-            if (errorUi) {
-                errorUi.style.display = 'block';
-                const errorDetails = document.createElement('div');
-                errorDetails.style.marginTop = '10px';
-                errorDetails.style.fontSize = '12px';
-                errorDetails.style.color = 'white';
-                errorDetails.textContent = 'Error: ' + (error.message || error);
-                errorUi.appendChild(errorDetails);
-            }
-        });
     </script>
+
+    <!-- MAUI BlazorWebView calls Blazor.start() after the native bridge is ready -->
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
 </body>
 </html>

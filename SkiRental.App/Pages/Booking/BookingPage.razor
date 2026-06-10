@@ -3,6 +3,9 @@
 ════════════════════════════════════════════════════════════════════════════ *@
 @page "/booking"
 @using SkiRental.UI.Shared.Components.Booking
+@using SkiRental.App.Services
+
+@inject BookingStateService BookingState
 
 <PageTitle>Nowe Wypożyczenie | SkiRental</PageTitle>
 
@@ -10,5 +13,17 @@
     <nav class="breadcrumb">
         <a href="/">Strona główna</a> / Nowe wypożyczenie
     </nav>
-    <BookingWizard />
+    <BookingWizard RentalStart="_rentalStart" RentalEnd="_rentalEnd" />
 </div>
+
+@code {
+    private DateTime? _rentalStart;
+    private DateTime? _rentalEnd;
+
+    protected override void OnInitialized()
+    {
+        var (start, end) = BookingState.GetRentalWindowOrDefault();
+        _rentalStart = start;
+        _rentalEnd = end;
+    }
+}

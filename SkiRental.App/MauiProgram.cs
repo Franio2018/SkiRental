@@ -30,7 +30,9 @@ public static class MauiProgram
         builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG
-        builder.Services.AddBlazorWebViewDeveloperTools();
+        // DevTools use WebView2 APIs unavailable on Android WebView (receiveMessage).
+        if (OperatingSystem.IsWindows())
+            builder.Services.AddBlazorWebViewDeveloperTools();
 #endif
 
         // ── Configuration ─────────────────────────────────────────────────────
@@ -137,11 +139,11 @@ public static class MauiProgram
             using var scope = app.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<SkiRentalDbContext>();
             db.Database.Migrate();
-            // Shop does not rent gloves/helmets; remove legacy seed rows if present.
-            db.Equipment
-                .Where(e => e.Category == Domain.Enums.EquipmentCategory.Gloves
-                         || e.Category == Domain.Enums.EquipmentCategory.Helmet)
-                .ExecuteDelete();
+            // Remove legacy gloves/helmet rows if an older database still has them.
+            db.Database.ExecuteSqlRaw(
+                "DELETE FROM RentalEquipments WHERE EquipmentId IN (SELECT Id FROM Equipment WHERE Category IN ('Gloves', 'Helmet'));");
+            db.Database.ExecuteSqlRaw(
+                "DELETE FROM Equipment WHERE Category IN ('Gloves', 'Helmet');");
             File.WriteAllText(logPath, $"[{DateTime.Now}] Startup OK. DB={localDbPath}");
         }
         catch (Exception ex)

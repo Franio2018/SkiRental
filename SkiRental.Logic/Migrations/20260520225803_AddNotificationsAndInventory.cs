@@ -42,10 +42,7 @@ namespace SkiRental.Logic.Migrations
                     { 8, "Salomon", "Boots", "Combi", 35m, null, null, null, "Prolink Access", "SAL-BT-42", 42m, "Available", null, 0, 2023 },
                     { 9, "Salomon", "Boots", "Combi", 35m, null, null, null, "Prolink Access", "SAL-BT-43", 43m, "Available", null, 0, 2024 },
                     { 10, "Fischer", "Boots", "Classic", 40m, null, null, null, "RC3 Classic", "FIS-BT-44", 44m, "Available", null, 0, 2024 },
-                    { 11, "Fischer", "Boots", "Skate", 40m, null, null, null, "RC3 Skate", "FIS-BT-45", 45m, "Available", null, 0, 2024 },
-                    { 12, "Leki", "Gloves", null, 10m, null, null, null, "Nordic Glove S", "GLO-S-001", 1m, "Available", null, 0, 2023 },
-                    { 13, "Leki", "Gloves", null, 10m, null, null, null, "Nordic Glove M", "GLO-M-001", 2m, "Available", null, 0, 2023 },
-                    { 14, "Uvex", "Helmet", null, 15m, null, null, null, "Sportstyle S", "HLM-S-001", 1m, "Available", null, 0, 2023 }
+                    { 11, "Fischer", "Boots", "Skate", 40m, null, null, null, "RC3 Skate", "FIS-BT-45", 45m, "Available", null, 0, 2024 }
                 });
 
             migrationBuilder.CreateIndex(
@@ -94,21 +91,6 @@ namespace SkiRental.Logic.Migrations
                 table: "Equipment",
                 keyColumn: "Id",
                 keyValue: 11);
-
-            migrationBuilder.DeleteData(
-                table: "Equipment",
-                keyColumn: "Id",
-                keyValue: 12);
-
-            migrationBuilder.DeleteData(
-                table: "Equipment",
-                keyColumn: "Id",
-                keyValue: 13);
-
-            migrationBuilder.DeleteData(
-                table: "Equipment",
-                keyColumn: "Id",
-                keyValue: 14);
         }
     }
 }

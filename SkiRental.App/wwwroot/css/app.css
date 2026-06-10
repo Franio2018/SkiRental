@@ -297,6 +297,12 @@ a:hover { text-decoration: underline; }
 .wizard-nav .btn-primary { flex: 2; }
 .wizard-nav .btn-secondary { flex: 1; }
 
+.rental-season-hint {
+    margin: 0 0 1rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted, #64748b);
+}
+
 /* ── Style selector ─────────────────────────────────────────────────────── */
 .style-cards {
     display: grid;

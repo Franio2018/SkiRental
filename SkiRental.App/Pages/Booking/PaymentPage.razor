@@ -3,6 +3,7 @@
 @using SkiRental.Domain.Enums
 @using SkiRental.Logic.Interfaces
 @using SkiRental.Logic.Services
+@using SkiRental.Logic
 @using SkiRental.App.Services
 @using Microsoft.AspNetCore.Components
 
@@ -11,21 +12,21 @@
 @inject IJSRuntime JSRuntime
 @inject BookingStateService BookingState
 
-<PageTitle>Payment - SkiRental</PageTitle>
+<PageTitle>Płatność | SkiRental</PageTitle>
 
 <div class="payment-page">
     @if (_gearSelection == null)
     {
         <div class="loading-state">
             <div class="spinner"></div>
-            <p>Loading payment details...</p>
+            <p>Ładowanie podsumowania…</p>
         </div>
     }
     else
     {
         <div class="payment-container">
             <div class="order-summary">
-                <h2>Order Summary</h2>
+                <h2>Podsumowanie zamówienia</h2>
                 <div class="summary-items">
                     @foreach (var kvp in _gearSelection.EquipmentIds)
                     {
@@ -49,11 +50,11 @@
                 <div class="rental-period">
                     <div class="period-row">
                         <span>From:</span>
-                        <span>@_gearSelection.StartTime:dd.MM.yyyy HH:mm</span>
+                        <span>@_gearSelection.StartTime:dd.MM.yyyy</span>
                     </div>
                     <div class="period-row">
                         <span>To:</span>
-                        <span>@_gearSelection.EndTime:dd.MM.yyyy HH:mm</span>
+                        <span>@_gearSelection.EndTime:dd.MM.yyyy</span>
                     </div>
                     <div class="period-row">
                         <span>Duration:</span>
@@ -70,19 +71,21 @@
             </div>
 
             <div class="payment-methods">
-                <h2>Choose Payment Method</h2>
+                <h2>Wybierz sposób płatności</h2>
+                <p class="payment-methods-lead">@RecommendationUserMessages.SpotPaymentHint</p>
                 
                 <div class="method-cards">
                     <div class="method-card @(_selectedMethod == PaymentMethod.Spot ? "selected" : "")"
                          @onclick="() => SelectPaymentMethod(PaymentMethod.Spot)">
                         <div class="method-header">
                             <div class="method-icon">💵</div>
-                            <h3>Pay on the Spot</h3>
+                            <h3>Płatność w lokalu (na miejscu)</h3>
                         </div>
-                        <p>Pay cash or card when you pick up your equipment</p>
+                        <p>Zapłacisz gotówką lub kartą przy odbiorze sprzętu w wypożyczalni</p>
                         <div class="method-features">
-                            <span class="feature">✓ No online payment</span>
-                            <span class="feature">✓ Pay at pickup</span>
+                            <span class="feature">✓ Bez płatności online</span>
+                            <span class="feature">✓ Rezerwacja od razu potwierdzona</span>
+                            <span class="feature">✓ Płatność przy ladzie</span>
                         </div>
                     </div>
 
@@ -90,12 +93,12 @@
                          @onclick="() => SelectPaymentMethod(PaymentMethod.Online)">
                         <div class="method-header">
                             <div class="method-icon">💳</div>
-                            <h3>Pay Online (PayU)</h3>
+                            <h3>Płatność online (PayU)</h3>
                         </div>
-                        <p>Secure online payment with card or BLIK</p>
+                        <p>BLIK lub karta — opłata przed odbiorem sprzętu</p>
                         <div class="method-features">
-                            <span class="feature">✓ Instant confirmation</span>
-                            <span class="feature">✓ Secure payment</span>
+                            <span class="feature">✓ Szybkie potwierdzenie</span>
+                            <span class="feature">✓ Bezpieczna bramka PayU</span>
                         </div>
                     </div>
                 </div>
@@ -161,7 +164,7 @@
 
             <div class="payment-actions">
                 <button class="btn-secondary" @onclick="GoBack">
-                    ← Back to Gear Review
+                    ← Wróć do przeglądu sprzętu
                 </button>
                 <button class="btn-primary pay-btn" 
                         @onclick="ProcessPayment" 
@@ -175,7 +178,7 @@
 
 @code {
     private GearSelection? _gearSelection;
-    private PaymentMethod? _selectedMethod;
+    private PaymentMethod? _selectedMethod = PaymentMethod.Spot;
     private PaymentMode _paymentMode = PaymentMode.Card;
     private string _cardNumber = string.Empty;
     private string _cardNumberDisplay = string.Empty;
@@ -274,9 +277,9 @@
         
         return _selectedMethod switch
         {
-            PaymentMethod.Spot => $"Confirm Reservation • {_gearSelection?.TotalAmount:F2} PLN",
-            PaymentMethod.Online => $"Pay {_gearSelection?.TotalAmount:F2} PLN",
-            _ => "Select Payment Method"
+            PaymentMethod.Spot => $"Potwierdź rezerwację • {_gearSelection?.TotalAmount:F2} PLN (płatność w lokalu)",
+            PaymentMethod.Online => $"Zapłać online {_gearSelection?.TotalAmount:F2} PLN",
+            _ => "Wybierz sposób płatności"
         };
     }
 
@@ -353,7 +356,7 @@
             }
             else
             {
-                _paymentError = result.ErrorMessage ?? "Payment failed. Please try again.";
+                _paymentError = result.ErrorMessage ?? "Płatność nie powiodła się. Spróbuj ponownie lub wybierz płatność w lokalu.";
             }
         }
         catch (Exception ex)

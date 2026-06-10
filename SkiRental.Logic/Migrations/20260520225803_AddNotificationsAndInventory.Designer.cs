@@ -366,45 +366,6 @@ namespace SkiRental.Logic.Migrations
                             Status = "Available",
                             TotalRentalDays = 0,
                             YearOfProduction = 2024
-                        },
-                        new
-                        {
-                            Id = 12,
-                            Brand = "Leki",
-                            Category = "Gloves",
-                            DailyRate = 10m,
-                            Model = "Nordic Glove S",
-                            SerialNumber = "GLO-S-001",
-                            Size = 1m,
-                            Status = "Available",
-                            TotalRentalDays = 0,
-                            YearOfProduction = 2023
-                        },
-                        new
-                        {
-                            Id = 13,
-                            Brand = "Leki",
-                            Category = "Gloves",
-                            DailyRate = 10m,
-                            Model = "Nordic Glove M",
-                            SerialNumber = "GLO-M-001",
-                            Size = 2m,
-                            Status = "Available",
-                            TotalRentalDays = 0,
-                            YearOfProduction = 2023
-                        },
-                        new
-                        {
-                            Id = 14,
-                            Brand = "Uvex",
-                            Category = "Helmet",
-                            DailyRate = 15m,
-                            Model = "Sportstyle S",
-                            SerialNumber = "HLM-S-001",
-                            Size = 1m,
-                            Status = "Available",
-                            TotalRentalDays = 0,
-                            YearOfProduction = 2023
                         });
                 });
 

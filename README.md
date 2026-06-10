@@ -238,7 +238,7 @@ Equipment
 ├── Id              (PK)
 ├── SerialNumber    (UNIQUE)
 ├── Brand / Model
-├── Category        ← Skis | Poles | Boots | Gloves | Helmet
+├── Category        ← Skis | Poles | Boots
 ├── Size            ← długość [cm] lub rozmiar buta [EU]
 ├── Stiffness       ← Flex Index 1–120
 ├── Status          ← Available | Rented | Maintenance | Retired

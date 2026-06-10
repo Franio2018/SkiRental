@@ -28,7 +28,8 @@
 		<DisableBuildCompression>true</DisableBuildCompression>
 		<EnableCompressionOnPublish>false</EnableCompressionOnPublish>
 		<BlazorEnableCompression>false</BlazorEnableCompression>
-		<IsPublishable>false</IsPublishable>
+		<!-- Keep publishable so `dotnet run -f <tfm>` can invoke the platform Run target. -->
+		<IsPublishable Condition="'$(IsPublishable)' == ''">true</IsPublishable>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -65,5 +66,16 @@
 		<ProjectReference Include="..\SkiRental.Logic\SkiRental.Logic.csproj" />
 		<ProjectReference Include="..\SkiRental.UI.Shared\SkiRental.UI.Shared.csproj" />
 	</ItemGroup>
+
+	<!--
+	  Microsoft.NET.Sdk.Razor multi-targeting projects do not expose a top-level Run target,
+	  so `dotnet run -f <tfm>` fails with MSB4057. Forward to the inner platform build.
+	-->
+	<Target Name="Run"
+	        Condition="'$(IsCrossTargetingBuild)' == 'true' and '$(TargetFramework)' != ''">
+		<MSBuild Projects="$(MSBuildProjectFile)"
+		         Targets="Run"
+		         Properties="TargetFramework=$(TargetFramework)" />
+	</Target>
 
 </Project>

@@ -24,8 +24,6 @@ public sealed class GearSwapService : IGearSwapService
         [EquipmentCategory.Skis] = 10m,   // ±10 cm
         [EquipmentCategory.Poles] = 5m,    // ±5 cm
         [EquipmentCategory.Boots] = 1m,    // ±1 EU
-        [EquipmentCategory.Gloves] = 0m,    // Exact match only
-        [EquipmentCategory.Helmet] = 0m     // Exact match only
     };
 
     public GearSwapService(
@@ -81,8 +79,6 @@ public sealed class GearSwapService : IGearSwapService
             EquipmentCategory.Skis => parameters.Height + (parameters.Style == SkiStyle.Classic ? 25m : 12.5m),
             EquipmentCategory.Poles => parameters.Height * (parameters.Style == SkiStyle.Classic ? 0.85m : 0.90m),
             EquipmentCategory.Boots => parameters.ShoeSize,
-            EquipmentCategory.Gloves => 0, // S/M/L mapping would go here
-            EquipmentCategory.Helmet => 0, // S/M/L mapping would go here
             _ => 0
         };
     }
